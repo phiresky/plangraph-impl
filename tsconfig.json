@@ -1,0 +1,15 @@
+{
+	"compilerOptions": {
+		"target": "ES6",
+		"sourceMap": false,
+		"out": "bin/tmp.js",
+		"noImplicitAny": true
+	},
+	"files": [
+		"lib.es6.d.ts",
+		"typings/sigmajs/sigmajs.d.ts",
+				"util.ts",
+		"test.ts"
+
+	]
+}
