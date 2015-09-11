@@ -5,13 +5,13 @@ class Edge {
 	get id() {
 		return `e${this.v1.id}-${this.v2.id}`;
 	}
-	static unordered(v1:Vertex, v2:Vertex) {
-		if(v1.id > v2.id) {
+	static unordered(v1: Vertex, v2: Vertex) {
+		if (v1.id > v2.id) {
 			return new Edge(v2, v1);
 		}
 		return new Edge(v1, v2);
 	}
-	static ordered(v1:Vertex, v2:Vertex) {
+	static ordered(v1: Vertex, v2: Vertex) {
 		return new Edge(v1, v2);
 	}
 }
@@ -19,7 +19,7 @@ class Edge {
 class Vertex {
 	private static counter = 0;
 	id: number;
-	get sigmaId() {return ""+this.id}
+	get sigmaId() { return "" + this.id }
 	edges = new Set<Vertex>();
 	constructor() {
 		this.id = Vertex.counter++;
@@ -51,7 +51,7 @@ class Graph {
 		const out = new ActualSet<Edge>(e => e.id);
 		for (let v1 of this.V) for (let v2 of this.getEdges(v1)) {
 			const e = Edge.unordered(v1, v2);
-			if(!out.has(e)) out.add(e);
+			if (!out.has(e)) out.add(e);
 		}
 		return out;
 	}
@@ -74,16 +74,16 @@ class Graph {
 		setTimeout(() => sigmaInstance.stopForceAtlas2(), 2000);
 	}
 	static randomGraph(N = 10, E = 15) {
-		const verts:Vertex[] = [];
+		const verts: Vertex[] = [];
 		for (let i = 0; i < N; i++) verts.push(new Vertex());
 		const edges = new ActualSet<Edge>(e => e.id);
 		for (let i = 0; i < E; i++) {
-			let e:Edge;
+			let e: Edge;
 			do {
 				const v1 = Math.random() * N | 0;
 				const v2 = Math.random() * N | 0;
 				e = Edge.unordered(verts[v1], verts[v2]);
-			} while(edges.has(e));
+			} while (edges.has(e));
 			edges.add(e);
 			e.v1.edges.add(e.v2); e.v2.edges.add(e.v1);
 		}
@@ -101,7 +101,7 @@ class Graph {
 }
 class Tree<T> {
 	constructor(public value: T, public children: Tree<T>[] = []) { }
-	preOrder(fn: (t: Tree<T>, parent: Tree<T>, layer: number, childIndex: number) => any, layer = 0, parent:Tree<T> = null, childIndex = 0) {
+	preOrder(fn: (t: Tree<T>, parent: Tree<T>, layer: number, childIndex: number) => any, layer = 0, parent: Tree<T> = null, childIndex = 0) {
 		fn(this, parent, layer, childIndex);
 		for (let i = 0; i < this.children.length; i++) this.children[i].preOrder(fn, layer + 1, this, i);
 	}
@@ -110,27 +110,17 @@ class Tree<T> {
 		return 1 + Math.max(...this.children.map(c => c.depth));
 	}
 	toArray() {
-		let layers:[T, T][][] = new Array(this.depth);
-		
+		let layers: [T, T][][] = new Array(this.depth);
+
 		function add(t: Tree<T>, parent: Tree<T>, layer: number, childIndex: number) {
-			if(!layers[layer]) layers[layer] = [];
-			layers[layer].push([t.value, parent?parent.value:null]);
+			if (!layers[layer]) layers[layer] = [];
+			layers[layer].push([t.value, parent ? parent.value : null]);
 		}
 		this.preOrder(add);
 		return layers;
 	}
 }
 
-module Util {
-	function componentToHex(c:number) {
-		var hex = c.toString(16);
-		return hex.length == 1 ? "0" + hex : hex;
-	}
-
-	export function rgbToHex(r:number, g:number, b:number) {
-		return "#" + componentToHex(r) + componentToHex(g) + componentToHex(b);
-	}
-}
 
 function BFS(G: Graph, root: Vertex = G.V.values().next().value) {
 	let rootTree = new Tree(root);
@@ -139,7 +129,7 @@ function BFS(G: Graph, root: Vertex = G.V.values().next().value) {
 	while (queue.length > 0) {
 		const v = queue.shift();
 		for (let child of G.getEdges(v.value)) {
-			if(visited.has(child)) continue;
+			if (visited.has(child)) continue;
 			const t = new Tree(child);
 			v.children.push(t);
 			queue.push(t);
@@ -148,19 +138,19 @@ function BFS(G: Graph, root: Vertex = G.V.values().next().value) {
 	}
 	return rootTree;
 }
-function reposition(edges: Map<Vertex, {x:number, y:number}>) {
+function reposition(edges: Map<Vertex, { x: number, y: number }>) {
 	const nodes = sigmaInstance.graph.nodes();
 	const ys = nodes.map(n => n.y), xs = nodes.map(n => n.x);
 	const miny = Math.min(...ys), maxy = Math.max(...ys);
 	const minx = Math.min(...xs), maxx = Math.max(...xs);
-	for(const [vertex, {x,y}] of edges) {
+	for (const [vertex, {x, y}] of edges) {
 		const node = sigmaInstance.graph.nodes(vertex.sigmaId);
-		node.x = (maxx-minx) * x + minx;
-		node.y = (maxy-miny) * y + miny;
+		node.x = (maxx - minx) * x + minx;
+		node.y = (maxy - miny) * y + miny;
 	}
 }
 function highlight(edges: Set<Edge>) {
-	for(let _edge of edges) {
+	for (let _edge of edges) {
 		const edge = sigmaInstance.graph.edges(_edge.id);
 		edge.color = "#ff0000";
 		edge.size = 6;
@@ -170,16 +160,16 @@ function visualizeBFS(G: Graph) {
 	const tree = BFS(G);
 	let color = 0;
 	sigmaInstance.stopForceAtlas2();
-	let layers:[Vertex, Vertex][][] = tree.toArray();
-	
-	const repos = new Map<Vertex, {x:number,y:number}>();
+	let layers: [Vertex, Vertex][][] = tree.toArray();
+
+	const repos = new Map<Vertex, { x: number, y: number }>();
 	const highlights = new Set<Edge>();
-	for(let i = 0; i < layers.length; i++) {
+	for (let i = 0; i < layers.length; i++) {
 		const l = layers[i];
-		for(let n = 0; n < l.length; n++) {
+		for (let n = 0; n < l.length; n++) {
 			const [vertex, parent] = l[n];
-			repos.set(vertex, {x:(n+1) / (parent==null?2:l.length+1),y: i / layers.length});
-			if(parent == null) continue;
+			repos.set(vertex, { x: (n + 1) / (parent == null ? 2 : l.length + 1), y: i / layers.length });
+			if (parent == null) continue;
 			highlights.add(Edge.unordered(parent, vertex));
 		}
 	}
@@ -205,10 +195,10 @@ function matching(G: Graph): Edge[] {
 	return null;
 }
 
-let g : Graph;
+let g: Graph;
 function init() {
 	sigmaInstance = new sigma('graph-container');
-	
+
 	g = Graph.randomGraph(30, 60);
 	g.draw();
 	setTimeout(() => visualizeBFS(g), 2000);

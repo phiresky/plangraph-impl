@@ -1,32 +1,32 @@
 class ActualSet<T> implements Set<T> {
 	map = new Map<string, T>();
-	
-	constructor(public hasher:(ele:T)=>string) {}
-	
-	get size() {return this.map.size; }
 
-    add(item:T) {
+	constructor(public hasher: (ele: T) => string) { }
+
+	get size() { return this.map.size; }
+
+    add(item: T) {
         this.map.set(this.hasher(item), item);
 		return this;
     }
-	
+
 	clear() {
 		this.map.clear();
 		return this;
 	}
-	
-	delete(item:T) {
+
+	delete(item: T) {
 		return this.map.delete(this.hasher(item));
 	}
-	
-	entries():IterableIterator<[T,T]> {
+
+	entries(): IterableIterator<[T, T]> {
 		let realIt = this.map.values();
-		let it:Iterator<[T,T]> = {
+		let it: Iterator<[T, T]> = {
 			next: realIt.next.bind(realIt),
 			return: realIt.return.bind(realIt),
 			throw: realIt.throw.bind(realIt)
 		};
-		let it2 = <IterableIterator<[T,T]>>it;
+		let it2 = <IterableIterator<[T, T]>>it;
 		it2[Symbol.iterator] = () => it2;
 		return it2;
 	}
@@ -34,12 +34,12 @@ class ActualSet<T> implements Set<T> {
     [Symbol.iterator]() {
         return this.map.values();
     }
-	
-	has(item:T) {
+
+	has(item: T) {
 		return this.map.has(this.hasher(item));
 	}
 	forEach(callbackfn: (value: T, index: T, set: Set<T>) => void, thisArg: any = this): void {
-		for(let v of this) callbackfn.call(thisArg, v, v);
+		for (let v of this) callbackfn.call(thisArg, v, v);
 	}
 	keys() {
 		return this.map.values();
@@ -49,5 +49,16 @@ class ActualSet<T> implements Set<T> {
 	}
 	get [Symbol.toStringTag]() {
 		return this.map[Symbol.toStringTag];
+	}
+}
+
+module Util {
+	function componentToHex(c: number) {
+		var hex = c.toString(16);
+		return hex.length == 1 ? "0" + hex : hex;
+	}
+
+	export function rgbToHex(r: number, g: number, b: number) {
+		return "#" + componentToHex(r) + componentToHex(g) + componentToHex(b);
 	}
 }
