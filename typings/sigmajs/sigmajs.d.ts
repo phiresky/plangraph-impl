@@ -80,6 +80,7 @@ declare module SigmaJs{
         nodes(): Node[];
         nodes(id: string): Node;
         nodes(ids: string[]): Node[];
+        read(g: GraphData): void;
     }
 
     interface GraphData {
@@ -108,6 +109,7 @@ declare module SigmaJs{
         type?: string;
         x?: number;
         y?: number;
+        [att:string]: any;
     }
 
     interface Parsers {
@@ -117,6 +119,7 @@ declare module SigmaJs{
 
     interface Plugins {
         dragNodes: DragNodes;
+        animate: any;
     }
 
     interface Renderer {

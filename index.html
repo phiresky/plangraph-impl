@@ -1,14 +1,36 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planar Graphs tests</title>
+
 <script src="sigma-all.min.js"></script>
 <script src="bin/bin.js"></script>
 
 
-  <style>
-    #graph-container {
-      top: 0;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      position: absolute;
-    }
-  </style>
-  <div id="graph-container"></div>
+<style>
+  #graph-container {
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    position: absolute;
+    z-index: 1;
+  }
+  
+  #interface {
+    z-index: 2;
+    position: absolute;
+  }
+</style>
+<div id="graph-container"></div>
+<div id="interface">
+  <button onclick="Macros.newRandomPlanarGraph()">new random graph</button>
+  <p>Positions:&nbsp;
+    <button onclick="resetPositions(g)">planar embedding</button>
+    <button onclick="Macros.bfsPositions()">BFS tree order</button>
+  </p>
+  <p>Highlight:&nbsp;
+     <button onclick="Macros.noHighlights()">no highlights</button>
+    <button onclick="Macros.bfsHighlights()">highlight BFS tree</button>
+  </p>
+</div>

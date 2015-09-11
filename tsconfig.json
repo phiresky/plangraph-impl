@@ -8,8 +8,7 @@
 	"files": [
 		"lib.es6.d.ts",
 		"typings/sigmajs/sigmajs.d.ts",
-				"util.ts",
+		"util.ts",
 		"test.ts"
-
 	]
 }
