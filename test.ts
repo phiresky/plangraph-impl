@@ -109,6 +109,16 @@ class Tree<T> {
 		if (this.children.length == 0) return 1;
 		return 1 + Math.max(...this.children.map(c => c.depth));
 	}
+	toArray() {
+		let layers:[T, T][][] = new Array(this.depth);
+		
+		function add(t: Tree<T>, parent: Tree<T>, layer: number, childIndex: number) {
+			if(!layers[layer]) layers[layer] = [];
+			layers[layer].push([t.value, parent?parent.value:null]);
+		}
+		this.preOrder(add);
+		return layers;
+	}
 }
 
 module Util {
@@ -160,15 +170,7 @@ function visualizeBFS(G: Graph) {
 	const tree = BFS(G);
 	let color = 0;
 	sigmaInstance.stopForceAtlas2();
-	let layers:[Vertex, Vertex][][] = new Array(tree.depth);
-	
-	function colorize(t: Tree<Vertex>, parent: Tree<Vertex>, layer: number, childIndex: number) {
-		//let color = (layer / depth * 255) | 0;
-		//let str = Util.rgbToHex(255, color, color);
-		if(!layers[layer]) layers[layer] = [];
-		layers[layer].push([t.value, parent?parent.value:null]);
-	}
-	tree.preOrder(colorize);
+	let layers:[Vertex, Vertex][][] = tree.toArray();
 	
 	const repos = new Map<Vertex, {x:number,y:number}>();
 	const highlights = new Set<Edge>();

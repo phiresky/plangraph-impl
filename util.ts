@@ -1,7 +1,7 @@
 class ActualSet<T> implements Set<T> {
 	map = new Map<string, T>();
 	
-	constructor(public hasher:(T)=>string) {}
+	constructor(public hasher:(ele:T)=>string) {}
 	
 	get size() {return this.map.size; }
 
@@ -26,8 +26,9 @@ class ActualSet<T> implements Set<T> {
 			return: realIt.return.bind(realIt),
 			throw: realIt.throw.bind(realIt)
 		};
-		it[Symbol.iterator] = it;
-		return <IterableIterator<[T,T]>>it;
+		let it2 = <IterableIterator<[T,T]>>it;
+		it2[Symbol.iterator] = () => it2;
+		return it2;
 	}
 
     [Symbol.iterator]() {
