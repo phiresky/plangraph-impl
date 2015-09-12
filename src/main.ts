@@ -9,7 +9,8 @@ interface StepByStepState<FinalResult> {
 	newNodeHighlights?: Highlights<Vertex>,
 	changePositions?: Map<Vertex, Point>,
 	/** undefined if not done */
-	finalResult?: FinalResult
+	finalResult?: FinalResult,
+	textOutput: string
 }
 
 const Color = {
@@ -33,32 +34,37 @@ const Algorithms = [
 
 module GUI {
 	export let currentAlgorithm: StepByStepAlgorithm<any> = null;
-	let interval: number = undefined;
+	let timeout: number = undefined;
+	let running = false;
 	export function algorithmStep() {
 		if (currentAlgorithm) {
-			if (StepByStep.step(currentAlgorithm)) {
+			if (StepByStep.step(currentAlgorithm, algorithmCallback)) {
 				onAlgorithmFinish();
 			}
 		} else {
 			onAlgorithmFinish();
 		}
 	}
+	export function algorithmCallback() {
+		if(running) setTimeout(() => !running || algorithmStep(), 300);
+	}
 	export function onAlgorithmFinish() {
 		$("#stepButton").prop("disabled", true);
 		$("#runButton").prop("disabled", true);
-		if (interval !== undefined) {
-			$("#runButton").text("Run");
-			clearInterval(interval);
+		if (running) {
+			algorithmRunToggle();
 		}
 	}
 	export function algorithmRunToggle() {
 		const btn = $("#runButton");
-		if (interval !== undefined) {
+		if (running) {
+			running = false;
 			btn.text("Run");
-			clearInterval(interval);
+			clearInterval(timeout);
 		} else {
+			running = true;
 			btn.text("Stop");
-			interval = setInterval(() => algorithmStep(), 10000 / g.n);
+			algorithmStep();
 		}
 	}
 	export function startAlgorithm() {
@@ -100,10 +106,10 @@ module GUI {
 
 }
 class StepByStep {
-	static step<T>(algo: StepByStepAlgorithm<T>): boolean {
+	static step<T>(algo: StepByStepAlgorithm<T>, callback:() => void): boolean {
 		const next = algo.next();
 		if (next.done) return true;
-		StepByStep.applyState(next.value);
+		StepByStep.applyState(next.value, callback);
 		return next.value.finalResult !== undefined;
 	}
 	static complete<T>(algo: StepByStepAlgorithm<T>): T {
@@ -112,14 +118,17 @@ class StepByStep {
 		}
 		throw "did not get final result"
 	}
-	static applyState(state: StepByStepState<any>) {
+	static applyState(state: StepByStepState<any>, callback:()=>void) {
 		highlightEdges(g, state.resetEdgeHighlights, ...(state.newEdgeHighlights || []));
 		highlightVertices(g, state.resetNodeHighlights, ...(state.newNodeHighlights || []));
+		$("#stateOutput").text(state.textOutput);
+		sigmainst.refresh();
 		if(state.changePositions !== undefined) {
 			addPositions("_temp", state.changePositions);
-			animatePositions("_temp", [...state.changePositions.keys()].map(v => v.sigmaId));
+			animatePositions("_temp", [...state.changePositions.keys()].map(v => v.sigmaId), callback);
+		} else {
+			callback();
 		}
-		sigmainst.refresh();
 	}
 }
 
@@ -188,8 +197,8 @@ class BFS {
 				newEdgeHighlights: [
 					{ set: currentChildren, color: Color.PrimaryHighlight },
 					{ set: usedEdges, color: Color.Normal }
-				]
-
+				],
+				textOutput: `Found ${visited.size} of ${G.n} vertices`
 			}
 		}
 		const bfs = new BFS(rootTree);
@@ -197,7 +206,8 @@ class BFS {
 			resetEdgeHighlights: Color.GrayedOut,
 			resetNodeHighlights: Color.Normal,
 			newEdgeHighlights: [{ set: bfs.getUsedEdges(), color: Color.Normal }],
-			finalResult: bfs
+			finalResult: bfs,
+			textOutput: "BFS successful"
 		};
 	}
 	getTreeOrderPositions() {
@@ -227,13 +237,14 @@ function addPositions(prefix: string, posMap: Iterable<[Vertex, { x: number, y: 
 		node[prefix + "_y"] = y;
 	}
 }
-function animatePositions(prefix: string, nodes?:string[]) {
+function animatePositions(prefix: string, nodes?:string[], callback?:()=>void) {
 	sigma.plugins.animate(sigmainst, {
 		x: prefix + '_x', y: prefix + '_y'
 	}, {
 			easing: 'cubicInOut',
 			duration: 1000,
-			nodes: nodes
+			nodes: nodes,
+			onComplete: callback
 		});
 }
 function highlightEdges(g: Graph, othersColor: string, ...edgeSets: Array<{ set: ActualSet<Edge>, color: string }>) {
@@ -265,22 +276,26 @@ function resetPositions(G: Graph) {
 }
 
 function *findPlanarEmbedding(g: PlanarGraph):StepByStepAlgorithm<Map<Vertex, Point>> {
+	const embeddedSubgraph = new PlanarGraph();
 	g.triangulateAll();
 	sigmainst.graph.clear();
 	g.draw(sigmainst);
 	yield {
+		textOutput:"Triangulated"
 		//todo
 	}
 	const map = new Map<Vertex, Point>();
-	const embeddedEdges = Edge.Set();
 	const vertices = [...g.getVertices()];
 	const v1 = Util.randomChoice(vertices);
 	let v2 = Util.randomChoice(g.getEdgesUndirected(v1));
 	let v3 = g.getNextEdge(v1, v2);
-	[v2, v3] = [v3, v2]; // todo: check if necessary
-	embeddedEdges.add(Edge.undirected(v1, v2));
-	embeddedEdges.add(Edge.undirected(v2, v3));
-	embeddedEdges.add(Edge.undirected(v3, v1));
+	embeddedSubgraph.addVertex(v1);
+	embeddedSubgraph.addVertex(v2);
+	embeddedSubgraph.addVertex(v3);
+	embeddedSubgraph.addEdgeUndirected(v1, v2);
+	embeddedSubgraph.addEdgeUndirected(v2, v3);
+	embeddedSubgraph.addEdgeUndirected(v3, v1);
+	(<any>window)._g = embeddedSubgraph;
 	//while(v3 === v1) v3 = Util.randomChoice(g.getEdgesUndirected(v2));
 	
 	interface Facet {
@@ -288,27 +303,33 @@ function *findPlanarEmbedding(g: PlanarGraph):StepByStepAlgorithm<Map<Vertex, Po
 		vertices: Vertex[];
 		isOuter?: boolean
 	}
-	function facetContains(f:Facet, v:Vertex) {
+	function facetContainsAt(f:Facet, v:Vertex, i:number) {
 		const c = f.vertices.length;
-		for(let i = 0; i < c; i++) {
-			const vafter = f.vertices[i];
-			const vref = f.vertices[(i+1)%c];
-			const vbefore = f.vertices[(i+2)%c];
-			for(let vert of g.getEdgesBetween(vbefore, vref, vafter))
-				if(vert===v) return true;
+		const vafter = f.vertices[(i+c-1)%c];
+		const vref = f.vertices[i%c];
+		const vbefore = f.vertices[(i+1)%c];
+		for(let vert of g.getEdgesBetween(vbefore, vref, vafter))
+			if(vert===v) return true;
+		return false;
+	}
+	function facetContains(f:Facet, v:Vertex) {
+		for(let i = 0; i < f.vertices.length; i++) {
+			if(facetContainsAt(f, v, i)) return true;
 		}
+		return false;
 	}
 	const facets = new Set<Facet>();
-	facets.add({vertices: [v1,v2,v3]});
-	facets.add({vertices: [v1,v3,v2], isOuter:true}); 
-	map.set(v1, {x:0,y:0});
-	map.set(v2, {x:0.5, y: Math.sqrt(3)/2});
-	map.set(v3, {x:1, y:0});
+	facets.add({vertices: [v1,v2,v3], isOuter: true});
+	facets.add({vertices: [v1,v3,v2]}); 
+	map.set(v1, {x:0, y:0});
+	map.set(v2, {x:1, y:0});
+	map.set(v3, {x:0.5, y: Math.sqrt(3)/2});
 	yield {
+		textOutput: "Added initial facet",
 		changePositions:map,
 		resetEdgeHighlights: "#cccccc",
 		resetNodeHighlights: "#cccccc",
-		newEdgeHighlights: [{set : embeddedEdges, color:Color.Normal}],
+		newEdgeHighlights: [{set: embeddedSubgraph.getAllEdgesUndirected(), color:Color.Normal}],
 		newNodeHighlights: [{set: Vertex.Set(...map.keys()), color:Color.Normal}]
 	};
 	const halfEmbeddedEdges = (v:Vertex) => g.getEdgesUndirected(v).filter(w => map.has(w));
@@ -318,63 +339,88 @@ function *findPlanarEmbedding(g: PlanarGraph):StepByStepAlgorithm<Map<Vertex, Po
 		if(v === undefined) throw "bläsius error";
 		const edges = halfEmbeddedEdges(v);
 		yield {
+			textOutput: "next vertex to insert",
 			resetEdgeHighlights: "#cccccc",
 			resetNodeHighlights: "#cccccc",
 			changePositions:map,
 			newEdgeHighlights: [
-				{set: embeddedEdges, color: Color.Normal}
+				{set: embeddedSubgraph.getAllEdgesUndirected(), color: Color.Normal}
 			],
 			newNodeHighlights: [{set: Vertex.Set(v), color: Color.PrimaryHighlight}, 
 				{set:Vertex.Set(...edges), color: Color.SecondaryHighlight},
 				{set: Vertex.Set(...map.keys()), color:Color.Normal}]
 		}
-		if(edges.length === 2) {
-			let [va, vb] = edges;
-			let target: Facet;
-			for(let facet of facets) if(facetContains(facet, v)) {
-				console.log(v, "is in", facet);
-				target = facet;
-			}
-			if(target.isOuter) {
-				if(!g.hasEdgeUndirected(va, vb)) throw "wat do2?";
-				let firstIndex = -1;
-				for(const [i, vertex1] of target.vertices.entries()) {
-					const vertex2 = target.vertices[(i+1)%target.vertices.length];
-					if(vertex1 === vb && vertex2 === va) {
-						// need to check both in case va is first in array and vb is last in array
-						[va, vb] = [vb, va];
-						firstIndex = i;
-						break;
-					} else if(vertex1 === va && vertex2 === vb) {
-						firstIndex = i;
-					}
-				}
-				// put new one left of first - second;
-				const dist = 0.9*Math.sqrt(3)/2*Util.lineDistance(map.get(va), map.get(vb))[2];
-				const center = Util.lineCenter(map.get(va), map.get(vb));
-				const perp = Util.linePerpendicular(map.get(va), map.get(vb));
-				const newPoint = {x:center.x-perp.x*dist, y:center.y-perp.y*dist};
-				map.set(v, newPoint);
-				embeddedEdges.add(Edge.undirected(v, va));
-				embeddedEdges.add(Edge.undirected(v, vb));
-				target.vertices.splice(firstIndex + 1, 0, v);
-				facets.add({vertices: [va, vb, v]});
-			}
+		
+		const neighbour = edges[0];
+		const containingFacets = [...facets].filter(facet => {
+			const i = facet.vertices.indexOf(neighbour);
+			if(i<0) return false;
+			return facetContainsAt(facet, v,i);
+		});
+		if(containingFacets.length !== 1) throw new Error("internal error " + containingFacets);
+		const containingFacet = containingFacets[0];
+		console.log(v, "is in", containingFacet);
+		
+		const points = containingFacet.vertices.map(v => map.get(v));
+		let point:Point;
+		if(Util.polygonConvex(points)) {
+			console.log("is convex");
+			point = Util.polygonCentroid(points);
 		} else {
-			throw "wat do?";
+			point = Util.polygonKernel(points);
+		}
+		map.set(v, point);
+		yield {
+			textOutput: "moved vertex to new position",
+			resetEdgeHighlights: "#cccccc",
+			resetNodeHighlights: "#cccccc",
+			changePositions:map,
+			newEdgeHighlights: [
+				{set: embeddedSubgraph.getAllEdgesUndirected(), color: Color.Normal}
+			],
+			newNodeHighlights: [{set: Vertex.Set(v), color: Color.PrimaryHighlight}, 
+				{set:Vertex.Set(...edges), color: Color.SecondaryHighlight},
+				{set: Vertex.Set(...map.keys()), color:Color.Normal}]
+		}
+		let lastEdge:Vertex = undefined;
+		const edgesSet = Vertex.Set(...edges);
+		embeddedSubgraph.addVertex(v);
+		for(const [i,vertex] of containingFacet.vertices.entries()) {
+			if(edgesSet.has(vertex)) {
+				embeddedSubgraph.addEdgeUndirected(v, vertex, lastEdge, containingFacet.vertices[(i+1)%containingFacet.vertices.length]);
+				lastEdge = vertex;
+			}
 		}
 		yield {
-			resetEdgeHighlights: "#cccccc",
-			resetNodeHighlights: "#cccccc",
-			changePositions:map,
-			newEdgeHighlights: [
-				{set: embeddedEdges, color: Color.Normal}
-			],
-			newNodeHighlights: [{set: Vertex.Set(v), color: Color.PrimaryHighlight}, 
-				{set:Vertex.Set(...edges), color: Color.SecondaryHighlight},
-				{set: Vertex.Set(...map.keys()), color:Color.Normal}]
+			textOutput: `added new edges to vertex ${v}`,
+			newEdgeHighlights: [{set: Edge.Set(...[...edgesSet].map(v2 => Edge.undirected(v,v2))), color:Color.PrimaryHighlight}]
+		}
+		facets.delete(containingFacet);
+		for(let facet of embeddedSubgraph.facetsAround(v)) {
+			facets.add({vertices:facet});
+			yield {
+				textOutput: "adding facets",
+				resetEdgeHighlights: "#cccccc",
+				newEdgeHighlights: [
+					{set: Edge.Set(...vertexArrayToEdges(facet, true)), color: Color.PrimaryHighlight},
+					{set: embeddedSubgraph.getAllEdgesUndirected(), color: Color.Normal}
+				]
+			}
 		}
 	}
+	yield {
+		textOutput: "Embedding successful",
+		resetNodeHighlights: Color.Normal,
+		resetEdgeHighlights: Color.Normal,
+		finalResult: map
+	}
+}
+
+function vertexArrayToEdges(path:Vertex[], wrapAround = false) {
+	const pathEdges: Edge[] = [];
+	for (let i = 0; i < path.length - 1; i++) pathEdges.push(Edge.undirected(path[i], path[i + 1]));
+	if(wrapAround && path.length > 1) pathEdges.push(Edge.undirected(path[path.length-1], path[0]));
+	return pathEdges;
 }
 
 type Separator = { v1: Iterable<Vertex>, v2: Iterable<Vertex>, s: Iterable<Vertex> };
@@ -440,10 +486,8 @@ function* treeLemma(G: Graph, bfs: BFS): StepByStepAlgorithm<Separator> {
 	const commonRoot = path2[0];
 	while (path1[0] !== commonRoot) path1.shift();
 
-	const path1Edges: Edge[] = [];
-	for (let i = 0; i < path1.length - 1; i++) path1Edges.push(Edge.undirected(path1[i], path1[i + 1]));
-	const path2Edges: Edge[] = [];
-	for (let i = 0; i < path2.length - 1; i++) path2Edges.push(Edge.undirected(path2[i], path2[i + 1]));
+	const path1Edges: Edge[] = vertexArrayToEdges(path1);
+	const path2Edges: Edge[] = vertexArrayToEdges(path2);
 	yield {
 		resetEdgeHighlights: Color.GrayedOut,
 		resetNodeHighlights: Color.Normal,
@@ -456,7 +500,8 @@ function* treeLemma(G: Graph, bfs: BFS): StepByStepAlgorithm<Separator> {
 			{ set: Edge.Set(...path1Edges), color: Color.SecondaryHighlight },
 			{ set: Edge.Set(...path2Edges), color: Color.TertiaryHighlight },
 			{ set: treeEdges, color: Color.Normal }
-		]
+		],
+		textOutput:"found initial nontree edge and circle"
 	};
 
 	let innerSize = 0;
@@ -472,10 +517,11 @@ function* treeLemma(G: Graph, bfs: BFS): StepByStepAlgorithm<Separator> {
 		resetNodeHighlights: Color.GrayedOut,
 		newNodeHighlights: [
 			{set: Vertex.Set(...innerNodes), color:Color.PrimaryHighlight}
-		]
+		],
+		textOutput:"found inner node count"
 	}
 
-	yield { 
+	yield { textOutput:"not implemented",
 		finalResult: { v1: null, v2: null, s: null } }
 }
 

@@ -60,6 +60,10 @@ class Graph {
 		if (this.getEdgesUndirected(v).indexOf(to) >= 0 && this.getEdgesUndirected(to).indexOf(v) >= 0) return true;
 		else return false;
 	}
+	addVertex(v: Vertex) {
+		this.V.add(v);
+		if(!this.E.has(v)) this.E.set(v, []);
+	}
 	addEdgeUndirected(from: Vertex, to: Vertex) {
 		console.log(`adding (${from},${to})`);
 		if (this.hasEdgeUndirected(from, to)) throw `${from} to ${to} already exists`;
@@ -67,7 +71,7 @@ class Graph {
 		this.getEdgesUndirected(to).push(from);
 	}
 	getEdgesUndirected(v: Vertex) {
-		if (!this.V.has(v)) throw `graph does not contain ${v}`;
+		if (!this.V.has(v)) throw new Error(`graph does not contain ${v}`);
 		return this.E.get(v);
 	}
 	getAllEdgesUndirected() {
@@ -210,6 +214,10 @@ class PlanarGraph extends Graph {
 		}
 		return this;
 	}
+	getVertexById(id:number):Vertex {
+		for(let v of this.V) if(v.id === id) return v;
+		return null;
+	}
 
 	getEdgeIndex(v1: Vertex, v2: Vertex): number {
 		const edges = this.getEdgesUndirected(v1);
@@ -230,43 +238,52 @@ class PlanarGraph extends Graph {
 		let nextEdge = (this.getEdgeIndex(v1, v2) - 1 + edges.length) % edges.length;
 		return edges[nextEdge];
 	}
-	*getEdgesBetween(vbefore: Vertex, vref:Vertex, vafter:Vertex) {
-		if(!this.hasEdgeUndirected(vref, vafter)) throw "no";
-		if(vafter === vbefore) throw "same edge";
+	*getEdgesBetween(vbefore: Vertex, vref: Vertex, vafter: Vertex) {
+		if (!this.hasEdgeUndirected(vref, vafter)) throw "no";
+		if (vafter === vbefore) throw "same edge";
 		let edge = this.getNextEdge(vref, vbefore);
-		while(edge !== vafter) {
+		while (edge !== vafter) {
 			yield edge;
 			edge = this.getNextEdge(vref, edge);
 		}
 	}
 	addEdgeUndirected(from: Vertex, to: Vertex, afterEdge1?: Vertex, afterEdge2?: Vertex) {
-		//console.log(`adding (${from},${to}) after ${from},${afterEdge1} and ${to},${afterEdge2}`);
+		console.log(`adding (${from},${to}) after ${from},${afterEdge1} and ${to},${afterEdge2}`);
 		if (this.hasEdgeUndirected(from, to)) throw `${from} to ${to} already exists`;
-		if (afterEdge1 === undefined) {
+		if (afterEdge1 === undefined && afterEdge2 === undefined) {
 			this.getEdgesUndirected(from).push(to);
 			this.getEdgesUndirected(to).push(from);
 		} else {
-			const index1 = this.getEdgeIndex(from, afterEdge1);
 			const edges1 = this.getEdgesUndirected(from);
+			const index1 = afterEdge1 === undefined ? edges1.length - 1 : this.getEdgeIndex(from, afterEdge1);
 			edges1.splice(index1 + 1, 0, to);
-			const index2 = this.getEdgeIndex(to, afterEdge2);
 			const edges2 = this.getEdgesUndirected(to);
+			const index2 = afterEdge2 === undefined ? edges2.length - 1 : this.getEdgeIndex(to, afterEdge2);
 			edges2.splice(index2 + 1, 0, from);
 		}
+		console.log(`${from}: ${this.getEdgesUndirected(from)}, ${to}: ${this.getEdgesUndirected(to)}`);
 	}
-	
+	*facetsAround(v: Vertex) {
+		for(let v2 of this.getEdgesUndirected(v)) {
+			const facet = [v, v2];
+			while(facet[facet.length-1] !== v) facet.push(this.getPrevEdge(facet[facet.length-1], facet[facet.length-2]));
+			facet.pop();//no duplicate point
+			yield facet;
+		}
+	}
+
 	checkTriangulated() {
-		const has = (v1:Vertex, v2:Vertex) => this.hasEdgeUndirected(v1, v2);
-		for(const v1 of this.getVertices()) {
-			for(const v2 of this.getEdgesUndirected(v1)) {
+		const has = (v1: Vertex, v2: Vertex) => this.hasEdgeUndirected(v1, v2);
+		for (const v1 of this.getVertices()) {
+			for (const v2 of this.getEdgesUndirected(v1)) {
 				const v3 = this.getNextEdge(v1, v2);
-				if(!has(v1,v3) || this.getPrevEdge(v1, v3) !== v2) return false;
-				
-				if(!has(v2, v3) || this.getNextEdge(v2, v3) !== v1) return false;
-				if(!has(v2, v1) || this.getPrevEdge(v2, v1) !== v3) return false;
-				
-				if(!has(v3, v1) || this.getNextEdge(v3, v1) !== v2) return false;
-				if(!has(v3, v2) || this.getPrevEdge(v3, v2) !== v1) return false;
+				if (!has(v1, v3) || this.getPrevEdge(v1, v3) !== v2) return false;
+
+				if (!has(v2, v3) || this.getNextEdge(v2, v3) !== v1) return false;
+				if (!has(v2, v1) || this.getPrevEdge(v2, v1) !== v3) return false;
+
+				if (!has(v3, v1) || this.getNextEdge(v3, v1) !== v2) return false;
+				if (!has(v3, v2) || this.getPrevEdge(v3, v2) !== v1) return false;
 			}
 		}
 		return true;

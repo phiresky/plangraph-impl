@@ -159,7 +159,7 @@ module Util {
 	}
 
 	export function linePerpendicular(p: Point, q: Point) {
-		let [dx,dy,dist] = lineDistance(p, q);
+		let [dx, dy, dist] = lineDistance(p, q);
 		dx /= dist, dy /= dist;
 		return { x: dy, y: -dx };
 	}
@@ -169,4 +169,95 @@ module Util {
 		dx /= dist, dy /= dist;
 		return [dx, dy, dist];
 	}
+
+	export function polygonConvex(p: Point[]) {
+		console.log(p);
+		const l = p.length;
+		for (let i = 0; i < l; i++) {
+			const p1 = p[i], p2 = p[(i + 1) % l], p3 = p[(i + 2) % l];
+			if (!pointsConvex(p1, p2, p3)) return false;
+		}
+		return true;
+	}
+
+	export function pointsConvex({x: x0, y: y0}, {x: x1, y: y1}, {x: x2, y: y2}) {
+		const dx1 = x1 - x0;
+		const dy1 = y1 - y0;
+		const dx2 = x2 - x1;
+		const dy2 = y2 - y1;
+		const zcrossproduct = dx1 * dy2 - dy1 * dx2;
+		return zcrossproduct <= 0;
+	}
+	
+	/*export function findAngle(p1: Point, p2: Point, p3: Point) {
+		// invert - because of screen coordinates
+		return (Math.atan2(-(p1.y - p2.y), p1.x - p2.x) - Math.atan2(-(p3.y - p2.y), p3.x - p2.x)) * 180 / Math.PI;
+	}*/
+
+	export function polygonCentroid(vertices: Point[]) {
+		const l = vertices.length;
+		const centroid: Point = { x: 0, y: 0 };
+		let signedArea = 0.0;
+		let x0 = 0.0; // Current vertex X
+		let y0 = 0.0; // Current vertex Y
+		let x1 = 0.0; // Next vertex X
+		let y1 = 0.0; // Next vertex Y
+		let a = 0.0;  // Partial signed area
+
+		// For all vertices except last
+		for (let i = 0; i < vertices.length; ++i) {
+			x0 = vertices[i].x;
+			y0 = vertices[i].y;
+			x1 = vertices[(i + 1) % l].x;
+			y1 = vertices[(i + 1) % l].y;
+			a = x0 * y1 - x1 * y0;
+			signedArea += a;
+			centroid.x += (x0 + x1) * a;
+			centroid.y += (y0 + y1) * a;
+		}
+
+		signedArea *= 0.5;
+		centroid.x /= (6.0 * signedArea);
+		centroid.y /= (6.0 * signedArea);
+
+		return centroid;
+	}
+
+	export function polygonKernel(points: Point[]) {
+		// find kernel of containing facet. (lul)
+		const minx = points.reduce((min, p) => Math.min(min, p.x), Infinity);
+		const maxx = points.reduce((max, p) => Math.max(max, p.x), -Infinity);
+		const miny = points.reduce((min, p) => Math.min(min, p.y), Infinity);
+		const maxy = points.reduce((max, p) => Math.max(max, p.y), -Infinity);
+		const pointsForVisPoly = points.map(p => <[number, number]>[p.x, p.y]).reverse();
+		const inxMap = new Map<string, number>(pointsForVisPoly.map((v, i) => <[string, number]>["" + v, i]));
+		const polyIsSame = (poly: [number, number][]) => {
+			if (pointsForVisPoly.length !== poly.length) return false;
+			const offset = inxMap.get(poly[0] + "");
+			for (let i = 0; i < poly.length; i++) {
+				const p1 = poly[i];
+				const p2 = pointsForVisPoly[(i + offset) % poly.length];
+				if (!p2) return false;
+				if (p1[0] !== p2[0] || p1[1] !== p2[1]) return false;
+			}
+			return true;
+		}
+		const segments = VisibilityPolygon.convertToSegments([pointsForVisPoly]);
+		let x: number, y: number;
+		console.log("searching for ",points, segments);
+		while (true) {
+			x = Math.random() * (maxx - minx) + minx;
+			y = Math.random() * (maxy - miny) + miny;
+			if (VisibilityPolygon.inPolygon([x, y], pointsForVisPoly)) {
+				try {
+					if (polyIsSame(VisibilityPolygon.compute([x, y], segments))) break;
+				} catch(e) {
+					// sometimes fails when point to close to edge
+					continue;
+				}
+			}
+		}
+		return { x: x, y: y };
+	}
+
 }

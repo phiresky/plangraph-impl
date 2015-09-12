@@ -1,7 +1,7 @@
 {
 	"compilerOptions": {
 		"target": "ES6",
-		"sourceMap": false,
+		"sourceMap": true,
 		"out": "bin/tmp.js",
 		"noImplicitAny": true
 	},
