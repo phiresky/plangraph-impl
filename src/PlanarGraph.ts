@@ -1,5 +1,3 @@
-let sigmainst: SigmaJs.Sigma, g: Graph;
-
 class Edge {
 	constructor(public v1: Vertex, public v2: Vertex) { }
 	get id() {
@@ -16,7 +14,11 @@ class Edge {
 	}
 	toString = () => this.id;
 	static [ActualSet.hash](e: Edge) {
+		if (!(e instanceof Edge)) throw "assertion error";
 		return e.id;
+	}
+	static Set(...e: Edge[]) {
+		return new ActualSet(Edge, e);
 	}
 }
 
@@ -28,9 +30,13 @@ class Vertex {
 		this.id = Vertex.counter++;
 	}
 	static [ActualSet.hash](v: Vertex) {
+		if (!(v instanceof Vertex)) throw "assertion error";
 		return v.sigmaId;
 	}
 	toString = () => this.sigmaId;
+	static Set(...v: Vertex[]) {
+		return new ActualSet(Vertex, v);
+	}
 }
 class Graph {
 	protected V: Set<Vertex>;
@@ -39,16 +45,16 @@ class Graph {
 	get m() { return this.E.size; }
 	private positionMap: (v: Vertex) => Point;
 	constructor(V: Iterable<Vertex> = [], E: Iterable<[Vertex, Vertex[]]> = []) {
-		this.V = new ActualSet<Vertex>(Vertex, V);
+		this.V = Vertex.Set(...V);
 		this.E = new Map<Vertex, Vertex[]>(E);
 		for (const v of this.V) if (!this.E.has(v)) this.E.set(v, []);
 	}
 
-	subgraph(subV: Set<Vertex>) {
-		return new Graph(subV, new ActualSet(Edge, this.E));
+	subgraph(subV: Iterable<Vertex>) {
+		return new Graph(subV, new Map(this.E));
 	}
 	union(g2: Graph) {
-		return new Graph(new ActualSet(Vertex, [...this.V, ...g2.V]), new Map([...this.E, ...g2.E]));
+		return new Graph(Vertex.Set(...[...this.V, ...g2.V]), new Map([...this.E, ...g2.E]));
 	}
 	hasEdgeUndirected(v: Vertex, to: Vertex) {
 		if (this.getEdgesUndirected(v).indexOf(to) >= 0 && this.getEdgesUndirected(to).indexOf(v) >= 0) return true;
@@ -65,7 +71,7 @@ class Graph {
 		return this.E.get(v);
 	}
 	getAllEdgesUndirected() {
-		const out = new ActualSet<Edge>(Edge);
+		const out = Edge.Set();
 		for (let v1 of this.V) for (let v2 of this.getEdgesUndirected(v1)) {
 			const e = Edge.undirected(v1, v2);
 			if (!out.has(e)) out.add(e);
@@ -75,7 +81,7 @@ class Graph {
 	getVertices(): Iterable<Vertex> {
 		return this.V;
 	}
-	getRandomVertex() {
+	getSomeVertex() {
 		return this.V.values().next().value;
 	}
 	sortEdges(mapper: (v1: Vertex, v2: Vertex) => number) {
@@ -105,7 +111,7 @@ class Graph {
 		}
 		return { nodes: nodes, edges: edges };
 	}
-	draw() {
+	draw(sigmainst: SigmaJs.Sigma) {
 		const s = this.toSigma();
 		sigmainst.graph.read(s);
 		sigmainst.refresh();
@@ -143,7 +149,7 @@ class Graph {
 
 	static fromAscii(ascii: string, ...edges: number[][]) {
 		const data = ascii.split('\n');
-		if (data[0].length == 0) data.shift();
+		while (data[0].length == 0 || data[0].match(/_+/)) data.shift();
 		const toPos = new Map<Vertex, Point>();
 		const V: Vertex[] = [];
 		for (let [y, line] of data.entries()) {
@@ -174,7 +180,7 @@ class PlanarGraph extends Graph {
 	triangulateAll(): Graph {
 		type E = [Vertex, Vertex];
 		const invert = ([v1, v2]: E) => <E>[v2, v1];
-		const Θ = ([v1, v2]: E) => this.getNextEdge(v1, v2);
+		const Θ = ([v1, v2]: E) => <E>[v1, this.getNextEdge(v1, v2)];
 		const Θstar = (e: E) => Θ(invert(e));
 		const s = ([s, t]: E) => s, t = ([s, t]: E) => t;
 		const equal = ([s1, t1]: E, [s2, t2]: E) => s1 === s2 && t1 === t2;
@@ -186,12 +192,12 @@ class PlanarGraph extends Graph {
 			const é́ = Θstar(é);
 			if (equal(Θstar(é́), invert(e))) return; // already triangular
 			if (this.hasEdgeUndirected(v, t(é́)) || t(é́) === v) {
-				this.addEdgeUndirected(t(é), t(e), v, t(this.getPrevEdge(t(e), v)));
+				this.addEdgeUndirected(t(é), t(e), v, this.getPrevEdge(t(e), v));
 				return;
 			}
 			// todo: sonderfall
 			const eneu: E = [s(é), t(é́)];
-			this.addEdgeUndirected(s(eneu), t(eneu), t(this.getPrevEdge(s(eneu), t(é))), t(é));
+			this.addEdgeUndirected(s(eneu), t(eneu), this.getPrevEdge(s(eneu), t(é)), t(é));
 			triangulate(e, eneu);
 		}
 		for (const v of Util.shuffle([...this.V])) {
@@ -212,20 +218,29 @@ class PlanarGraph extends Graph {
 		}
 		throw `(${v1},${v2}) does not exist`;
 	}
-	getNextEdge(v1: Vertex, v2: Vertex): [Vertex, Vertex] {
+	getNextEdge(v1: Vertex, v2: Vertex): Vertex {
 		if (!this.hasEdgeUndirected(v1, v2)) throw "not an edge";
 		const edges = this.getEdgesUndirected(v1);
 		let nextEdge = (this.getEdgeIndex(v1, v2) + 1) % edges.length;
-		return [v1, edges[nextEdge]];
+		return edges[nextEdge];
 	}
-	getPrevEdge(v1: Vertex, v2: Vertex): [Vertex, Vertex] {
+	getPrevEdge(v1: Vertex, v2: Vertex): Vertex {
 		if (!this.hasEdgeUndirected(v1, v2)) throw "not an edge";
 		const edges = this.getEdgesUndirected(v1);
 		let nextEdge = (this.getEdgeIndex(v1, v2) - 1 + edges.length) % edges.length;
-		return [v1, edges[nextEdge]];
+		return edges[nextEdge];
+	}
+	*getEdgesBetween(vbefore: Vertex, vref:Vertex, vafter:Vertex) {
+		if(!this.hasEdgeUndirected(vref, vafter)) throw "no";
+		if(vafter === vbefore) throw "same edge";
+		let edge = this.getNextEdge(vref, vbefore);
+		while(edge !== vafter) {
+			yield edge;
+			edge = this.getNextEdge(vref, edge);
+		}
 	}
 	addEdgeUndirected(from: Vertex, to: Vertex, afterEdge1?: Vertex, afterEdge2?: Vertex) {
-		console.log(`adding (${from},${to}) after ${from},${afterEdge1} and ${to},${afterEdge2}`);
+		//console.log(`adding (${from},${to}) after ${from},${afterEdge1} and ${to},${afterEdge2}`);
 		if (this.hasEdgeUndirected(from, to)) throw `${from} to ${to} already exists`;
 		if (afterEdge1 === undefined) {
 			this.getEdgesUndirected(from).push(to);
@@ -239,19 +254,38 @@ class PlanarGraph extends Graph {
 			edges2.splice(index2 + 1, 0, from);
 		}
 	}
+	
+	checkTriangulated() {
+		const has = (v1:Vertex, v2:Vertex) => this.hasEdgeUndirected(v1, v2);
+		for(const v1 of this.getVertices()) {
+			for(const v2 of this.getEdgesUndirected(v1)) {
+				const v3 = this.getNextEdge(v1, v2);
+				if(!has(v1,v3) || this.getPrevEdge(v1, v3) !== v2) return false;
+				
+				if(!has(v2, v3) || this.getNextEdge(v2, v3) !== v1) return false;
+				if(!has(v2, v1) || this.getPrevEdge(v2, v1) !== v3) return false;
+				
+				if(!has(v3, v1) || this.getNextEdge(v3, v1) !== v2) return false;
+				if(!has(v3, v2) || this.getPrevEdge(v3, v2) !== v1) return false;
+			}
+		}
+		return true;
+	}
 
 	static randomPlanarGraph(n: number) {
 		const positionMap = new Map<Vertex, Point>();
 		const toPos: (v: Vertex) => Point = positionMap.get.bind(positionMap);
 
 		const V: Vertex[] = Util.array(n, i => new Vertex());
-		const E: [Vertex, Vertex][] = [];
+		const E: ActualSet<[Vertex, Vertex]> = new ActualSet(([v1, v2]: [Vertex, Vertex]) => v1.id + "|" + v2.id);
 		const G = new PlanarGraph(V);
 		for (let v of V) positionMap.set(v, { x: Math.random(), y: Math.random() });
 
-		function addPlanarLink(edge: [Vertex, Vertex], links: [Vertex, Vertex][]) {
-			if (!links.some(other => Util.intersect([toPos(edge[0]), toPos(edge[1])], [toPos(other[0]), toPos(other[1])])))
-				E.push(edge);
+		function addPlanarLink(edge: [Vertex, Vertex], links: ActualSet<[Vertex, Vertex]>) {
+			if (!links.has(edge) &&
+				edge[0] !== edge[1] &&
+				!links.some(other => Util.intersect([toPos(edge[0]), toPos(edge[1])], [toPos(other[0]), toPos(other[1])])))
+				E.add(edge);
 		}
 		for (const point of V) addPlanarLink([point, V[(Math.random() * n) | 0]], E);
 		for (let i = 0; i < n; i++) {
@@ -262,225 +296,3 @@ class PlanarGraph extends Graph {
 		return G;
 	}
 }
-
-class Tree<T> {
-	constructor(public element: T, public children: Tree<T>[] = []) { }
-	preOrder(fn: (t: Tree<T>, parent: Tree<T>, layer: number, childIndex: number) => any, layer = 0, parent: Tree<T> = null, childIndex = 0) {
-		fn(this, parent, layer, childIndex);
-		for (let i = 0; i < this.children.length; i++) this.children[i].preOrder(fn, layer + 1, this, i);
-	}
-	get depth(): number {
-		if (this.children.length == 0) return 1;
-		return 1 + Math.max(...this.children.map(c => c.depth));
-	}
-	toArray() {
-		let layers: { element: T, parent: T }[][] = new Array(this.depth);
-
-		function add(t: Tree<T>, parent: Tree<T>, layer: number, childIndex: number) {
-			if (!layers[layer]) layers[layer] = [];
-			layers[layer].push({ element: t.element, parent: parent ? parent.element : null });
-		}
-		this.preOrder(add);
-		return layers;
-	}
-}
-
-class BFS {
-	constructor(public tree: Tree<Vertex>) { }
-
-	private _treeLayers: { element: Vertex, parent: Vertex }[][];
-	get treeLayers() {
-		if (this._treeLayers === undefined) this._treeLayers = this.tree.toArray();
-		return this._treeLayers;
-	}
-	static run(G: Graph, root: Vertex = G.getRandomVertex()) {
-		let rootTree = new Tree(root);
-		let visited = new Set<Vertex>([root]);
-		const queue: Tree<Vertex>[] = [rootTree];
-		while (queue.length > 0) {
-			const v = queue.shift();
-			for (let child of G.getEdgesUndirected(v.element)) {
-				if (visited.has(child)) continue;
-				const t = new Tree(child);
-				v.children.push(t);
-				queue.push(t);
-				visited.add(child);
-			}
-		}
-		return new BFS(rootTree);
-	}
-	getTreeOrderPositions() {
-		const layers = this.treeLayers;
-		const repos = new Map<Vertex, { x: number, y: number }>();
-		for (let [i, layer] of layers.entries()) {
-			for (let [n, {element, parent}] of layer.entries())
-				repos.set(element, { x: (n + 1) / (parent == null ? 2 : layer.length + 1), y: i / layers.length });
-		}
-		return repos;
-	}
-	getUsedEdges() {
-		const edges = new ActualSet<Edge>(Edge);
-		for (const layer of this.treeLayers) for (const {element, parent} of layer) {
-			if (parent == null) continue;
-			edges.add(Edge.undirected(parent, element));
-		}
-		return edges;
-	}
-}
-function addPositions(prefix: string, posMap: Iterable<[Vertex, { x: number, y: number }]>) {
-	const nodes = sigmainst.graph.nodes();
-	const ys = nodes.map(n => n.y), xs = nodes.map(n => n.x);
-	for (const [vertex, {x, y}] of posMap) {
-		const node = sigmainst.graph.nodes(vertex.sigmaId);
-		node[prefix + "_x"] = x;
-		node[prefix + "_y"] = y;
-	}
-}
-function animatePositions(prefix: string) {
-	sigma.plugins.animate(sigmainst, {
-		x: prefix + '_x', y: prefix + '_y'
-	}, {
-			easing: 'cubicInOut',
-			duration: 1000
-		});
-}
-function highlight(g: Graph, edges: Set<Edge>, color = "#ff0000") {
-	for (const _edge of g.getAllEdgesUndirected()) {
-		const edge = sigmainst.graph.edges(_edge.id);
-		if (edges.has(_edge)) {
-			edge.color = color;
-			edge.size = 6;
-		} else {
-			edge.color = "#000000";
-			edge.size = undefined;
-		}
-	}
-}
-function resetPositions(G: Graph) {
-	animatePositions("original");
-}
-function PST(G: Graph): { v1: Iterable<Vertex>, v2: Iterable<Vertex>, s: Iterable<Vertex> } {
-	function treeLemma(G: Graph, bfs: BFS) {
-		const parentMap = new Map<Vertex, Vertex>();
-		for(const layer of bfs.treeLayers) for(const {element, parent} of layer) parentMap.set(element, parent);
-		
-		const leaves:Vertex[] = [];
-		bfs.tree.preOrder((t) => t.children.length !== 0 || leaves.push(t.element));
-		let treeEdges = bfs.getUsedEdges();
-		let nonTreeEdge = [...G.getAllEdgesUndirected()].find(e => !treeEdges.has(e));
-		// TODO: 
-		
-	}
-	const n = G.n;
-	if (n < 5) throw "n is not >= 5";
-	const tree = BFS.run(G, G.getRandomVertex());
-	const layers = tree.treeLayers.map(layer => layer.map(ele => ele.element));
-	layers.push([]); // empty layer for M
-	let nodeCount = 0;
-	let middleLayer = -1;
-	const flat = Util.flatten;
-	for (let [i, layer] of layers.entries()) {
-		nodeCount += layer.length;
-		if (nodeCount > n / 2) {
-			middleLayer = i;
-			break;
-		}
-	}
-	if (layers[middleLayer].length <= 4 * Math.sqrt(n)) return {
-		v1: flat(layers.slice(0, middleLayer)),
-		v2: flat(layers.slice(middleLayer + 1)),
-		s: layers[middleLayer]
-	}
-	let m = middleLayer;
-	while (layers[m].length > Math.sqrt(n)) m--;
-	let M = middleLayer;
-	while (layers[M].length > Math.sqrt(n)) m++;
-	const A1 = layers.slice(0, m);
-	const A2 = layers.slice(m + 1, M);
-	const A3 = flat(layers.slice(M + 1));
-	if (A2.reduce((sum, layer) => sum + layer.length, 0) <= 2 / 3 * n) {
-		return { v1: flat(A2), v2: flat([...A1, ...A2]), s: [...layers[m], ...layers[M]] };
-	}
-	// |A2| > 2/3 n
-	const {v1: v1_b, v2: v2_b, s:s_b} = treeLemma();
-	return null;
-}
-function matching(G: Graph): Edge[] {
-	if (G.n >= 5) {
-		const {v1, v2, s} = PST(G);
-		const g1 = G.subgraph(v1), g2 = G.subgraph(v2);
-		const m1 = matching(g1), m2 = matching(g2);
-		const m = m1.concat(m2);
-		const g = g1.union(g2);
-		for (const v of s) {
-			// g.V. finde erhöhenden weg etc
-		}
-		return m;
-	}
-	return null;
-}
-
-const Macros = {
-	bfsPositions: () => {
-		addPositions('bfs', BFS.run(g).getTreeOrderPositions()); animatePositions('bfs');
-	},
-	bfsHighlights: () => {
-		highlight(g, BFS.run(g).getUsedEdges());
-		sigmainst.refresh();
-	},
-	noHighlights: () => {
-		highlight(g, new Set<Edge>());
-		sigmainst.refresh();
-	},
-	newRandomPlanarGraph: () => {
-		sigmainst.graph.clear();
-		g = PlanarGraph.randomPlanarGraph(30);
-		g.draw();
-	},
-	testAGraph: () => {
-		return Graph.fromAscii(
-			`
-         1
-
-2
-
-         3`, [1, 2, 3]);
-	},
-	testBGraph: () => {
-		return Graph.fromAscii(
-			`
-     1
-
-     2
-
-3        4`, [1, 2, 3], [2, 4]);
-	},
-	testCGraph: () => {
-		return Graph.fromAscii(
-			`
-1  2
-
-3  4`, [1, 2, 4, 3, 1], [2, 3]);
-	},
-	testDGraph: () => {
-		return Graph.fromAscii(
-			`
-1  2  3
-
-4  5  6  7
-
-  8  9`, [1, 2, 3, 6, 5, 4, 1], [2, 5, 3], [7, 6, 9, 8, 4]);
-	}
-}
-
-function init() {
-	sigmainst = new sigma('graph-container');
-	Macros.newRandomPlanarGraph();
-}
-
-document.addEventListener('DOMContentLoaded', init);
-
-interface Point {
-	x: number; y: number;
-}
-

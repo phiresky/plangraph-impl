@@ -3,8 +3,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Planar Graphs tests</title>
 
-<script src="sigma-all.min.js"></script>
+<script src="lib/visibility_polygon_dev.js"></script>
+<script src="lib/sigma-all.min.js"></script>
 <script src="bin/bin.js"></script>
+<script src="lib/jquery.min.js"></script>
 
 
 <style>
@@ -24,13 +26,17 @@
 </style>
 <div id="graph-container"></div>
 <div id="interface">
-  <button onclick="Macros.newRandomPlanarGraph()">new random graph</button>
+  n=<input type=number min=5 max=200 value=30 id="vertexCount">
+  <button onclick="GUI.Macros.newRandomPlanarGraph()">new random graph</button>
   <p>Positions:&nbsp;
     <button onclick="resetPositions(g)">planar embedding</button>
-    <button onclick="Macros.bfsPositions()">BFS tree order</button>
+    <button onclick="GUI.Macros.bfsPositions()">BFS tree order</button>
   </p>
   <p>Highlight:&nbsp;
-     <button onclick="Macros.noHighlights()">no highlights</button>
-    <button onclick="Macros.bfsHighlights()">highlight BFS tree</button>
+     <button onclick="GUI.Macros.noHighlights()">no highlights</button>
+    <button onclick="GUI.Macros.bfsHighlights()">highlight BFS tree</button>
   </p>
+  <p>Algorithm&nbsp;<select id="selectAlgorithm"></select><button onclick="GUI.startAlgorithm()">Start new Algorithm</button><br>
+    <button onclick="GUI.algorithmRunToggle()" id="runButton" disabled>Run</button>
+    <button onclick="GUI.algorithmStep()" id="stepButton" disabled>Step</button>
 </div>

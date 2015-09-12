@@ -6,9 +6,12 @@
 		"noImplicitAny": true
 	},
 	"files": [
-		"lib.es6.d.ts",
-		"typings/sigmajs/sigmajs.d.ts",
-		"util.ts",
-		"test.ts"
+		"lib/lib.es6.d.ts",
+		"lib/typings/sigmajs/sigmajs.d.ts",
+		"lib/visibility_polygon.d.ts",
+		"lib/typings/jquery/jquery.d.ts",
+		"src/util.ts",
+		"src/PlanarGraph.ts",
+		"src/main.ts"
 	]
 }

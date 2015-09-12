@@ -13,6 +13,7 @@ class ActualSet<T> implements Set<T> {
 	}
 
 	get size() { return this.map.size; }
+	get asPredicate(): (e: Edge) => boolean { return this.has.bind(this); }
 
     add(item: T) {
         this.map.set(this.hasher(item), item);
@@ -59,6 +60,10 @@ class ActualSet<T> implements Set<T> {
 	get [Symbol.toStringTag]() {
 		return this.map[Symbol.toStringTag];
 	}
+	some(predicate: (t: T) => boolean): boolean {
+		for (let t of this.map.values()) if (predicate(t)) return true;
+		return false;
+	}
 }
 
 module Util {
@@ -93,6 +98,34 @@ module Util {
 		return t > epsilon && t < 1 - epsilon && u > epsilon && u < 1 - epsilon;
 	}
 
+	export function findIntersection(line1a: Point, line1b: Point, line2a: Point, line2b: Point) {
+		const denominator = ((line2b.y - line2a.y) * (line1b.x - line1a.x)) - ((line2b.x - line2a.x) * (line1b.y - line1a.y));
+		if (denominator == 0) {
+			return null;
+		}
+		let a = line1a.y - line2a.y;
+		let b = line1a.x - line2a.x;
+		const numerator1 = ((line2b.x - line2a.x) * a) - ((line2b.y - line2a.y) * b);
+		const numerator2 = ((line1b.x - line1a.x) * a) - ((line1b.y - line1a.y) * b);
+		a = numerator1 / denominator;
+		b = numerator2 / denominator;
+		return {
+			// if we cast these lines infinitely in both directions, they intersect here:
+			x: line1a.x + (a * (line1b.x - line1a.x)),
+			y: line1a.y + (a * (line1b.y - line1a.y)),
+			/*
+					// it is worth noting that this should be the same as:
+					x = line2a.x + (b * (line2b.x - line2a.x));
+					y = line2a.x + (b * (line2b.y - line2a.y));
+					*/
+			// if line1 is a segment and line2 is infinite, they intersect if:
+			onLine1: a > 0 && a < 1,
+			// if line2 is a segment and line1 is infinite, they intersect if:
+			onLine2: b > 0 && b < 1
+			// if line1 and line2 are segments, they intersect if both of the above are true
+		}
+	};
+
 	export function array<T>(size: number, supplier: (index: number) => T): Array<T> {
 		const arr = new Array<T>(size);
 		for (let i = 0; i < arr.length; i++) arr[i] = supplier(i);
@@ -112,8 +145,28 @@ module Util {
 
 		return array;
 	}
-	
+
 	export function flatten<T>(array: T[][]): T[] {
-		return array.reduce((a,b) => a.concat(b)); 
+		return array.reduce((a, b) => a.concat(b));
+	}
+
+	export function randomChoice<T>(array: T[]): T {
+		return array[(Math.random() * array.length) | 0];
+	}
+
+	export function lineCenter(p: Point, q: Point) {
+		return { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 };
+	}
+
+	export function linePerpendicular(p: Point, q: Point) {
+		let [dx,dy,dist] = lineDistance(p, q);
+		dx /= dist, dy /= dist;
+		return { x: dy, y: -dx };
+	}
+	export function lineDistance({x: x1, y: y1}: Point, {x: x2, y: y2}: Point) {
+		let dx = x1 - x2, dy = y1 - y2;
+		const dist = Math.sqrt(dx * dx + dy * dy);
+		dx /= dist, dy /= dist;
+		return [dx, dy, dist];
 	}
 }
