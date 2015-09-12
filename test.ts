@@ -359,8 +359,50 @@ function highlight(g: Graph, edges: Set<Edge>, color = "#ff0000") {
 function resetPositions(G: Graph) {
 	animatePositions("original");
 }
-function PST(G: Graph): { v1: Set<Vertex>, v2: Set<Vertex>, s: Set<Vertex> } {
+function PST(G: Graph): { v1: Iterable<Vertex>, v2: Iterable<Vertex>, s: Iterable<Vertex> } {
+	function treeLemma(G: Graph, bfs: BFS) {
+		const parentMap = new Map<Vertex, Vertex>();
+		for(const layer of bfs.treeLayers) for(const {element, parent} of layer) parentMap.set(element, parent);
+		
+		const leaves:Vertex[] = [];
+		bfs.tree.preOrder((t) => t.children.length !== 0 || leaves.push(t.element));
+		let treeEdges = bfs.getUsedEdges();
+		let nonTreeEdge = [...G.getAllEdgesUndirected()].find(e => !treeEdges.has(e));
+		// TODO: 
+		
+	}
+	const n = G.n;
+	if (n < 5) throw "n is not >= 5";
 	const tree = BFS.run(G, G.getRandomVertex());
+	const layers = tree.treeLayers.map(layer => layer.map(ele => ele.element));
+	layers.push([]); // empty layer for M
+	let nodeCount = 0;
+	let middleLayer = -1;
+	const flat = Util.flatten;
+	for (let [i, layer] of layers.entries()) {
+		nodeCount += layer.length;
+		if (nodeCount > n / 2) {
+			middleLayer = i;
+			break;
+		}
+	}
+	if (layers[middleLayer].length <= 4 * Math.sqrt(n)) return {
+		v1: flat(layers.slice(0, middleLayer)),
+		v2: flat(layers.slice(middleLayer + 1)),
+		s: layers[middleLayer]
+	}
+	let m = middleLayer;
+	while (layers[m].length > Math.sqrt(n)) m--;
+	let M = middleLayer;
+	while (layers[M].length > Math.sqrt(n)) m++;
+	const A1 = layers.slice(0, m);
+	const A2 = layers.slice(m + 1, M);
+	const A3 = flat(layers.slice(M + 1));
+	if (A2.reduce((sum, layer) => sum + layer.length, 0) <= 2 / 3 * n) {
+		return { v1: flat(A2), v2: flat([...A1, ...A2]), s: [...layers[m], ...layers[M]] };
+	}
+	// |A2| > 2/3 n
+	const {v1: v1_b, v2: v2_b, s:s_b} = treeLemma();
 	return null;
 }
 function matching(G: Graph): Edge[] {

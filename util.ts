@@ -107,13 +107,13 @@ module Util {
 			// Pick a remaining element...
 			let randomIndex = Math.floor(Math.random() * currentIndex);
 			currentIndex -= 1;
-
-			// And swap it with the current element.
-			let temporaryValue = array[currentIndex];
-			array[currentIndex] = array[randomIndex];
-			array[randomIndex] = temporaryValue;
+			[array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
 		}
 
 		return array;
+	}
+	
+	export function flatten<T>(array: T[][]): T[] {
+		return array.reduce((a,b) => a.concat(b)); 
 	}
 }
