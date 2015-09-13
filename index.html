@@ -26,18 +26,26 @@
 </style>
 <div id="graph-container"></div>
 <div id="interface">
-  n=<input type=number min=5 max=200 value=30 id="vertexCount">
-  <button onclick="GUI.Macros.newRandomPlanarGraph()">new random graph</button>
+  <p>Graph:&nbsp; n=
+    <input type=number min=5 max=200 value=30 id="vertexCount">
+    <select id="selectGraph"></select>
+    <button onclick="GUI.Macros.loadGraph()">load graph</button>
+  </p>
   <p>Positions:&nbsp;
-    <button onclick="resetPositions(g)">planar embedding</button>
+    <button onclick="resetPositions(g)">original planar embedding</button>
     <button onclick="GUI.Macros.bfsPositions()">BFS tree order</button>
+    <button onclick="GUI.Macros.forceLayout()">Run force directed layout</button>
   </p>
   <p>Highlight:&nbsp;
-     <button onclick="GUI.Macros.noHighlights()">no highlights</button>
+    <button onclick="GUI.Macros.noHighlights()">no highlights</button>
     <button onclick="GUI.Macros.bfsHighlights()">highlight BFS tree</button>
   </p>
-  <p>Algorithm&nbsp;<select id="selectAlgorithm"></select><button onclick="GUI.startAlgorithm()">Start new Algorithm</button><br>
-    <button onclick="GUI.algorithmRunToggle()" id="runButton" disabled>Run</button>
-    <button onclick="GUI.algorithmStep()" id="stepButton" disabled>Step</button><br>
+  <p>Algorithm&nbsp;
+    <select id="selectAlgorithm"></select>
+    <button onclick="GUI.startAlgorithm()">Start Algorithm</button>
+    <br>
+    <button onclick="GUI.algorithmRunToggle()" id="runButton" disabled>Auto Run</button>
+    <button onclick="GUI.algorithmStep()" id="stepButton" disabled>Single Step</button>
+    <br>
     <pre id="stateOutput"></pre>
 </div>

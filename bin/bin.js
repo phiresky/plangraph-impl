@@ -646,6 +646,7 @@ var Graph = (function () {
     }, {
         key: "draw",
         value: function draw(sigmainst) {
+            if (!sigmainst) throw Error("no sigmainst passed");
             var s = this.toSigma();
             sigmainst.graph.read(s);
             sigmainst.refresh();
@@ -658,6 +659,20 @@ var Graph = (function () {
             }
         }
     }, {
+        key: "serialize",
+        value: function serialize() {
+            var map = {};
+            var pos = {};
+            for (var v of this.getVertices()) {
+                map[v.id] = [];
+                if (this.positionMap) pos[v.id] = this.positionMap(v);
+                for (var v2 of this.getEdgesUndirected(v)) {
+                    map[v.id].push(v2.id);
+                }
+            }
+            if (this.positionMap) return JSON.stringify({ v: map, pos: pos });else return JSON.stringify({ v: map });
+        }
+    }, {
         key: "n",
         get: function get() {
             return this.V.size;
@@ -668,6 +683,30 @@ var Graph = (function () {
             return this.E.size;
         }
     }], [{
+        key: "deserialize",
+        value: function deserialize(json) {
+            var data = JSON.parse(json);
+            var vs = new Map();
+            for (var vid of Object.keys(data.v)) {
+                var v = new Vertex();
+                vs.set(+vid, v);
+            }
+            var g = new PlanarGraph(vs.values());
+            for (var v1id of Object.keys(data.v)) {
+                for (var v2id of data.v[+v1id]) {
+                    var v1 = vs.get(+v1id);
+                    var v2 = vs.get(v2id);
+                    if (!g.hasEdgeUndirected(v1, v2)) g.addEdgeUndirected(v1, v2);
+                }
+            }if (data.pos) {
+                var map = new Map(Object.keys(data.pos).map(function (v) {
+                    return [vs.get(+v), data.pos[+v]];
+                }));
+                g.setPositionMap(map.get.bind(map));
+            }
+            return g;
+        }
+    }, {
         key: "randomGraph",
         value: function randomGraph() {
             var n = arguments.length <= 0 || arguments[0] === undefined ? 10 : arguments[0];
@@ -1004,12 +1043,12 @@ var GraphAlgorithm = function GraphAlgorithm(name, supplier) {
 
 var Algorithms = [new GraphAlgorithm("Breadth First Search", function () {
     return BFS.run(g);
-}), new GraphAlgorithm("Tree Lemma (Separator ≤ 2h + 1)", function () {
-    return treeLemma(g, StepByStep.complete(BFS.run(g)));
-}), new GraphAlgorithm("Find embedding", function () {
-    return findPlanarEmbedding(g);
 }), new GraphAlgorithm("vertex disjunct Menger algorithm", function () {
     return mengerVertexDisjunct(g, g.getRandomVertex(), g.getRandomVertex());
+}), new GraphAlgorithm("Find planar embedding", function () {
+    return findPlanarEmbedding(g);
+}), new GraphAlgorithm("Tree Lemma (incomplete) (Separator ≤ 2h + 1)", function () {
+    return treeLemma(g, StepByStep.complete(BFS.run(g)));
 })];
 var GUI;
 (function (GUI) {
@@ -1070,25 +1109,42 @@ var GUI;
             animatePositions('bfs');
         },
         bfsHighlights: function bfsHighlights() {
-            highlightEdges(g, "#000000", { set: StepByStep.complete(BFS.run(g)).getUsedEdges(), color: Color.PrimaryHighlight });
+            highlightEdges(g, Color.Normal, { set: StepByStep.complete(BFS.run(g)).getUsedEdges(), color: Color.PrimaryHighlight });
             sigmainst.refresh();
+        },
+        forceLayout: function forceLayout() {
+            sigmainst.configForceAtlas2({ slowDown: 1 });
+            sigmainst.startForceAtlas2();
+            setTimeout(function () {
+                return sigmainst.stopForceAtlas2();
+            }, 2000);
         },
         noHighlights: function noHighlights() {
-            highlightEdges(g, "#000000");
+            highlightEdges(g, Color.Normal);
+            highlightVertices(g, Color.Normal);
             sigmainst.refresh();
         },
-        newRandomPlanarGraph: function newRandomPlanarGraph() {
+        loadGraph: function loadGraph() {
             onAlgorithmFinish();
             sigmainst.graph.clear();
-            g = PlanarGraph.randomPlanarGraph(+document.getElementById("vertexCount").value);
+            g = TestGraphs[$("#selectGraph").val()](+$("#vertexCount").val());
+            g.draw(sigmainst);
+        },
+        replaceGraph: function replaceGraph(newg) {
+            sigmainst.graph.clear();
+            g = newg;
             g.draw(sigmainst);
         }
     };
     function init() {
-        sigmainst = new sigma('graph-container');
-        GUI.Macros.newRandomPlanarGraph();
-        var select = $("#selectAlgorithm")[0];
-        $(select).change(function () {
+        sigmainst = new sigma({
+            container: $("#graph-container")[0],
+            settings: {
+                minEdgeSize: 0, maxEdgeSize: 4
+            }
+        });
+        var algoSelect = $("#selectAlgorithm")[0];
+        $(algoSelect).change(function () {
             return onAlgorithmFinish();
         });
         for (var _ref183 of Algorithms.entries()) {
@@ -1097,8 +1153,18 @@ var GUI;
             var i = _ref182[0];
             var algo = _ref182[1];
 
-            select.add(new Option(algo.name, i + "", i === 0));
+            algoSelect.add(new Option(algo.name, i + "", i === 0));
         }
+        var graphSelect = $("#selectGraph")[0];
+        for (var _ref193 of Object.keys(TestGraphs).entries()) {
+            var _ref192 = _slicedToArray(_ref193, 2);
+
+            var i = _ref192[0];
+            var _g = _ref192[1];
+
+            graphSelect.add(new Option(_g, _g, i === 0));
+        }
+        GUI.Macros.loadGraph();
     }
     GUI.init = init;
 })(GUI || (GUI = {}));
@@ -1163,11 +1229,11 @@ var Tree = (function () {
             var childIndex = arguments.length <= 3 || arguments[3] === undefined ? 0 : arguments[3];
 
             fn(this, parent, layer, childIndex);
-            for (var _ref193 of this.children.entries()) {
-                var _ref192 = _slicedToArray(_ref193, 2);
+            for (var _ref203 of this.children.entries()) {
+                var _ref202 = _slicedToArray(_ref203, 2);
 
-                var i = _ref192[0];
-                var child = _ref192[1];
+                var i = _ref202[0];
+                var child = _ref202[1];
 
                 child.preOrder(fn, this, layer + 1, i);
             }
@@ -1179,11 +1245,11 @@ var Tree = (function () {
             var layer = arguments.length <= 2 || arguments[2] === undefined ? 0 : arguments[2];
             var childIndex = arguments.length <= 3 || arguments[3] === undefined ? 0 : arguments[3];
 
-            for (var _ref203 of this.children.entries()) {
-                var _ref202 = _slicedToArray(_ref203, 2);
+            for (var _ref213 of this.children.entries()) {
+                var _ref212 = _slicedToArray(_ref213, 2);
 
-                var i = _ref202[0];
-                var child = _ref202[1];
+                var i = _ref212[0];
+                var child = _ref212[1];
 
                 child.postOrder(fn, this, layer + 1, i);
             }fn(this, parent, layer, childIndex);
@@ -1224,19 +1290,19 @@ var BFS = (function () {
         value: function getTreeOrderPositions() {
             var layers = this.treeLayers;
             var repos = new Map();
-            for (var _ref213 of layers.entries()) {
-                var _ref212 = _slicedToArray(_ref213, 2);
+            for (var _ref223 of layers.entries()) {
+                var _ref222 = _slicedToArray(_ref223, 2);
 
-                var i = _ref212[0];
-                var layer = _ref212[1];
+                var i = _ref222[0];
+                var layer = _ref222[1];
 
-                for (var _ref223 of layer.entries()) {
-                    var _ref222 = _slicedToArray(_ref223, 2);
+                for (var _ref233 of layer.entries()) {
+                    var _ref232 = _slicedToArray(_ref233, 2);
 
-                    var n = _ref222[0];
-                    var _ref222$1 = _ref222[1];
-                    var element = _ref222$1.element;
-                    var _parent = _ref222$1.parent;
+                    var n = _ref232[0];
+                    var _ref232$1 = _ref232[1];
+                    var element = _ref232$1.element;
+                    var _parent = _ref232$1.parent;
 
                     repos.set(element, { x: (n + 1) / (_parent == null ? 2 : layer.length + 1), y: i / layers.length });
                 }
@@ -1248,9 +1314,9 @@ var BFS = (function () {
         value: function getUsedEdges() {
             var edges = Edge.Set();
             for (var layer of this.treeLayers) {
-                for (var _ref232 of layer) {
-                    var element = _ref232.element;
-                    var _parent2 = _ref232.parent;
+                for (var _ref242 of layer) {
+                    var element = _ref242.element;
+                    var _parent2 = _ref242.parent;
 
                     if (_parent2 == null) continue;
                     edges.add(Edge.undirected(_parent2, element));
@@ -1318,13 +1384,13 @@ function addPositions(prefix, posMap) {
         xs = nodes.map(function (n) {
         return n.x;
     });
-    for (var _ref243 of posMap) {
-        var _ref242 = _slicedToArray(_ref243, 2);
+    for (var _ref253 of posMap) {
+        var _ref252 = _slicedToArray(_ref253, 2);
 
-        var vertex = _ref242[0];
-        var _ref242$1 = _ref242[1];
-        var x = _ref242$1.x;
-        var y = _ref242$1.y;
+        var vertex = _ref252[0];
+        var _ref252$1 = _ref252[1];
+        var x = _ref252$1.x;
+        var y = _ref252$1.y;
 
         var node = sigmainst.graph.nodes(vertex.sigmaId);
         node[prefix + "_x"] = x;
@@ -1332,6 +1398,8 @@ function addPositions(prefix, posMap) {
     }
 }
 function animatePositions(prefix, nodes, duration, callback) {
+    if (duration === undefined) duration = 1000;
+
     sigma.plugins.animate(sigmainst, {
         x: prefix + '_x', y: prefix + '_y'
     }, {
@@ -1347,17 +1415,17 @@ function highlightEdges(g, othersColor) {
     }
 
     var _loop2 = function (_edge) {
-        var result = edgeSets.find(function (_ref25) {
-            var set = _ref25.set;
+        var result = edgeSets.find(function (_ref26) {
+            var set = _ref26.set;
             return set.has(_edge);
         });
         var edge = sigmainst.graph.edges(_edge.id);
         if (result !== undefined) {
             edge.color = result.color;
-            edge.size = 6;
+            edge.size = 3;
         } else if (othersColor !== undefined) {
             edge.color = othersColor;
-            edge.size = undefined;
+            edge.size = 1;
         }
     };
 
@@ -1371,8 +1439,8 @@ function highlightVertices(g, othersColor) {
     }
 
     var _loop3 = function (vertex) {
-        var result = vertexSets.find(function (_ref26) {
-            var set = _ref26.set;
+        var result = vertexSets.find(function (_ref27) {
+            var set = _ref27.set;
             return set.has(vertex);
         });
         var node = sigmainst.graph.nodes(vertex.sigmaId);
@@ -1499,11 +1567,11 @@ function* findPlanarEmbedding(g) {
         var lastEdge = undefined;
         var edgesSet = Vertex.Set.apply(Vertex, _toConsumableArray(edges));
         embeddedSubgraph.addVertex(v);
-        for (var _ref273 of containingFacet.vertices.entries()) {
-            var _ref272 = _slicedToArray(_ref273, 2);
+        for (var _ref283 of containingFacet.vertices.entries()) {
+            var _ref282 = _slicedToArray(_ref283, 2);
 
-            var i = _ref272[0];
-            var vertex = _ref272[1];
+            var i = _ref282[0];
+            var vertex = _ref282[1];
 
             if (edgesSet.has(vertex)) {
                 embeddedSubgraph.addEdgeUndirected(v, vertex, lastEdge, containingFacet.vertices[(i + 1) % containingFacet.vertices.length]);
@@ -1549,141 +1617,142 @@ function vertexArrayToEdges(path) {
     return pathEdges;
 }
 function* mengerVertexDisjunct(orig_g, s, t) {
-    var pathCounter = 0;
-    var paths = [];
     var g = orig_g.clone();
+    var foundPaths = [];
 
-    var Info = (function () {
-        function Info(path, pathIndex) {
-            _classCallCheck(this, Info);
+    var Info = function Info() {
+        _classCallCheck(this, Info);
+    };
 
-            this.path = path;
-            this.pathIndex = pathIndex;
-        }
-
-        _createClass(Info, [{
-            key: "previous",
-            get: function get() {
-                return this.path[this.pathIndex - 1];
-            }
+    var infos = new Map();
+    var pathId = 0;
+    for (var startv of g.getEdgesUndirected(s)) {
+        var p = Object.defineProperties({
+            arr: [s, startv]
         }, {
-            key: "next",
-            get: function get() {
-                return this.path[this.pathIndex + 1];
+            v: {
+                get: function get() {
+                    return this.arr[this.arr.length - 1];
+                },
+                set: function set(x) {
+                    this.arr[this.arr.length - 1] = x;
+                },
+                configurable: true,
+                enumerable: true
+            },
+            prev: {
+                get: function get() {
+                    return this.arr[this.arr.length - 2];
+                },
+                set: function set(x) {
+                    this.arr[this.arr.length - 2] = x;
+                },
+                configurable: true,
+                enumerable: true
             }
-        }], [{
-            key: "fromPrevious",
-            value: function fromPrevious(i, v) {
-                var path = i.path;
-                if (i.path.length === 1) path = path.slice();
-                if (path.length > i.pathIndex) path.splice(i.pathIndex + 1);
-                path.push(v);
-                return new Info(path, i.pathIndex + 1);
+        });
+        while (true) {
+            if (p.v === p.arr[p.arr.length - 3]) {
+                // edge iteration came full circle, go back
+                p.arr.pop();
             }
-        }]);
-
-        return Info;
-    })();
-
-    var infoMap = new Map([[s, new Info([s], 0)]]);
-    var stHighlight = { set: Vertex.Set(s, t), color: Color.TertiaryHighlight };
-    function* visit(v, prev) {
-        if (!v) return;
-        if (v === infoMap.get(prev).previous) {
-            var next = g.getNextEdge(v, prev);
-            g.removeEdgeUndirected(v, prev);
-            yield* visit(next, v);
-            return true;
-        }
-        if (v === s) {
-            var next = g.getNextEdge(prev, v);
-            // g.removeEdgeUndirected(prev, v);
-            yield* visit(next, prev);
-            return;
-        }
-        if (v === t) {
+            if (p.v === s) {
+                // skip
+                p.v = g.getNextEdge(p.prev, p.v);
+                continue;
+            }
             yield {
-                textOutput: "Found path!",
-                newEdgeHighlights: [{ set: Edge.Set(Edge.undirected(prev, v)), color: Color.PrimaryHighlight }]
-            };
-            var info = infoMap.get(prev);
-            info.path.push(v);
-            paths.push(info.path);
-            return true;
-        }
-        if (infoMap.has(v)) {
-            var theirInfo = infoMap.get(v);
-            console.log("already visited " + v + " from " + theirInfo.previous + " to " + theirInfo.next + ", now from " + prev);
-            if (theirInfo.path[theirInfo.pathIndex] === v && theirInfo.next && g.edgeIsBetween(v, prev, theirInfo.previous, theirInfo.next)) {
-                var _theirInfo$path, _thisInfo$path;
-
-                console.log("conflict from right");
-                // conflict from right
-                // swap prev arrays
-                var thisInfo = infoMap.get(prev);
-                var _ref28 = [theirInfo.pathIndex, thisInfo.pathIndex];
-                thisInfo.pathIndex = _ref28[0];
-                theirInfo.pathIndex = _ref28[1];
-
-                var oldStartSegment = thisInfo.path;
-                thisInfo.path = thisInfo.path.slice();
-                theirInfo.path = theirInfo.path.slice();
-                var newStartSegment = (_theirInfo$path = theirInfo.path).splice.apply(_theirInfo$path, [0, thisInfo.pathIndex].concat(_toConsumableArray(thisInfo.path)));
-                (_thisInfo$path = thisInfo.path).splice.apply(_thisInfo$path, [0, thisInfo.path.length].concat(_toConsumableArray(newStartSegment)));
-                prev = thisInfo.previous;
-                yield {
-                    textOutput: "Conflict from right - replacing segments",
-                    resetEdgeHighlights: Color.GrayedOut,
-                    newEdgeHighlights: [{ set: Edge.Set.apply(Edge, _toConsumableArray(vertexArrayToEdges(newStartSegment))), color: Color.PrimaryHighlight }, { set: Edge.Set.apply(Edge, _toConsumableArray(vertexArrayToEdges(oldStartSegment))), color: Color.SecondaryHighlight }, { set: Edge.Set.apply(Edge, _toConsumableArray(vertexArrayToEdges(theirInfo.path))), color: Color.TertiaryHighlight }]
-                };
-            }
-            console.log("conflict from left");
-            // conflict from left
-            // backtrack remove
-            var next = g.getNextEdge(prev, v);
-            g.removeEdgeUndirected(prev, v);
-            yield* visit(next, prev);
-            return;
-        } else {
-            infoMap.set(v, Info.fromPrevious(infoMap.get(prev), v));
-            console.log(infoMap.get(v));
-            yield {
-                textOutput: "Visiting " + v,
-                resetNodeHighlights: Color.GrayedOut,
+                textOutput: "exploring node " + p.v + " at index " + (p.arr.length - 1) + " of path " + (pathId + 1),
                 resetEdgeHighlights: Color.Invisible,
-                newNodeHighlights: [{ set: Vertex.Set(v), color: Color.PrimaryHighlight }, { set: Vertex.Set(prev), color: Color.SecondaryHighlight }, stHighlight, { set: Vertex.Set.apply(Vertex, _toConsumableArray(infoMap.keys())), color: Color.Normal }],
-                newEdgeHighlights: [{ set: Edge.Set.apply(Edge, _toConsumableArray(vertexArrayToEdges(infoMap.get(v).path))), color: Color.PrimaryHighlight }, { set: Edge.Set.apply(Edge, _toConsumableArray(Util.flatten(paths.map(function (path) {
+                resetNodeHighlights: Color.GrayedOut,
+                newEdgeHighlights: [{ set: Edge.Set.apply(Edge, _toConsumableArray(vertexArrayToEdges(p.arr))), color: Color.PrimaryHighlight }, { set: Edge.Set.apply(Edge, _toConsumableArray(Util.flatten(foundPaths.map(function (path) {
                         return vertexArrayToEdges(path);
-                    })))), color: Color.Normal }, { set: g.getAllEdgesUndirected(), color: Color.GrayedOut }]
+                    })))), color: Color.Normal }, { set: g.getAllEdgesUndirected(), color: Color.GrayedOut }],
+                newNodeHighlights: [{ set: Vertex.Set(p.v), color: Color.PrimaryHighlight }, { set: Vertex.Set(p.prev), color: Color.SecondaryHighlight }, { set: Vertex.Set(s, t), color: Color.TertiaryHighlight }, { set: Vertex.Set.apply(Vertex, _toConsumableArray(Util.flatten(foundPaths))), color: Color.Normal }]
             };
-            var res = yield* visit(g.getNextEdge(v, prev), v);
-            if (res === true) return true;
+            if (p.v === t) {
+                if (foundPaths[pathId]) throw Error("nooo");
+                foundPaths[pathId] = p.arr;
+                pathId++;
+                break;
+            }
+            if (infos.has(p.v)) {
+                // conflict
+
+                var _infos$get = infos.get(p.v);
+
+                var theirPathId = _infos$get.pathId;
+                var theirPathIndex = _infos$get.pathIndex;
+
+                var backtrackRemove = false;
+                if (theirPathId == pathId) {
+                    // conflict path is self
+                    if (p.arr[theirPathIndex] === p.v) {
+                        // did not backtrack out of that path => conflict from left
+                        backtrackRemove = true;
+                    } else {
+                        // node already visited, but had to backtrack => ignore node
+                        backtrackRemove = true;
+                    }
+                } else {
+                    var otherPath = foundPaths[theirPathId];
+                    if (!otherPath) throw Error("noo");
+                    if (otherPath[theirPathIndex] === p.v) {
+                        // node already contained in complete path
+                        if (g.edgeIsBetween(p.v, p.prev, otherPath[theirPathIndex - 1], otherPath[theirPathIndex + 1])) {
+                            // conflict from right => replace path segments
+                            var myNewPath = otherPath.splice.apply(otherPath, [0, theirPathIndex + 1].concat(_toConsumableArray(p.arr)));
+                            yield { textOutput: "replacing path segments" };
+                            for (var v of myNewPath) {
+                                v === s || (infos.get(v).pathId = pathId);
+                            }for (var v of p.arr) {
+                                v === s || (infos.get(v).pathId = theirPathId);
+                            }for (var _ref293 of otherPath.entries()) {
+                                var _ref292 = _slicedToArray(_ref293, 2);
+
+                                var i = _ref292[0];
+                                var v = _ref292[1];
+
+                                v === s || v === t || (infos.get(v).pathIndex = i);
+                            }p.arr = myNewPath;
+                            // new iteration (resulting in conflict from left)
+                            continue;
+                        } else {
+                            // conflict from left
+                            backtrackRemove = true;
+                        }
+                    } else {}
+                }
+                if (backtrackRemove) {
+                    var next = g.getNextEdge(p.prev, p.v);
+                    if (next === p.v) break;
+                    // g.removeEdgeUndirected(p.prev, p.v);
+                    p.v = next;
+                    if (p.prev === s) break; // backtracked into start, abort iteration
+                    continue;
+                }
+            }
+            infos.set(p.v, { pathIndex: p.arr.length - 1, pathId: pathId });
+            p.arr.push(g.getNextEdge(p.v, p.prev));
         }
-    }
-    for (var v of g.getEdgesUndirected(s)) {
-        pathCounter++;
-        yield {
-            textOutput: "Starting new path " + pathCounter,
-            resetEdgeHighlights: Color.GrayedOut,
-            resetNodeHighlights: Color.Normal,
-            newEdgeHighlights: [{ set: Edge.Set.apply(Edge, _toConsumableArray(Util.flatten(paths.map(function (path) {
-                    return vertexArrayToEdges(path);
-                })))), color: Color.Normal }],
-            newNodeHighlights: [stHighlight]
-        };
-        yield* visit(v, s);
     }
     yield {
-        finalResult: paths,
-        textOutput: "Found " + paths.length + " s-t-paths"
+        textOutput: "finished. found " + foundPaths.length + " paths from " + s + " to " + t,
+        resetEdgeHighlights: Color.GrayedOut,
+        resetNodeHighlights: Color.GrayedOut,
+        newEdgeHighlights: [{ set: Edge.Set.apply(Edge, _toConsumableArray(Util.flatten(foundPaths.map(function (path) {
+                return vertexArrayToEdges(path);
+            })))), color: Color.Normal }],
+        newNodeHighlights: [{ set: Vertex.Set(s, t), color: Color.TertiaryHighlight }, { set: Vertex.Set.apply(Vertex, _toConsumableArray(Util.flatten(foundPaths))), color: Color.Normal }],
+        finalResult: foundPaths
     };
 }
 function* treeLemma(G, bfs) {
     var parentMap = new Map();
     for (var layer of bfs.treeLayers) {
-        for (var _ref292 of layer) {
-            var element = _ref292.element;
-            var _parent3 = _ref292.parent;
+        for (var _ref302 of layer) {
+            var element = _ref302.element;
+            var _parent3 = _ref302.parent;
 
             parentMap.set(element, _parent3);
         }
@@ -1696,11 +1765,11 @@ function* treeLemma(G, bfs) {
         return childrenCount.set(leaf, [1, [leaf]]);
     });
     bfs.tree.postOrder(function (node) {
-        var outp = node.children.reduce(function (_ref30, node) {
-            var _ref302 = _slicedToArray(_ref30, 2);
+        var outp = node.children.reduce(function (_ref31, node) {
+            var _ref312 = _slicedToArray(_ref31, 2);
 
-            var sum = _ref302[0];
-            var children = _ref302[1];
+            var sum = _ref312[0];
+            var children = _ref312[1];
 
             var _childrenCount$get = childrenCount.get(node.element);
 
@@ -1762,6 +1831,11 @@ function* treeLemma(G, bfs) {
     // find common root
     var commonRoot = path2[0];
     while (path1[0] !== commonRoot) path1.shift();
+    if (parentMap.has(commonRoot) && G.edgeIsBetween(commonRoot, path2[1], path1[1], parentMap.get(commonRoot))) {} else {
+        var _ref32 = [path2, path1];
+        path1 = _ref32[0];
+        path2 = _ref32[1];
+    }
     var path1Edges = vertexArrayToEdges(path1);
     var path2Edges = vertexArrayToEdges(path2);
     yield {
@@ -1773,11 +1847,11 @@ function* treeLemma(G, bfs) {
     };
     var innerSize = 0;
     var innerNodes = [];
-    for (var _ref313 of path1.entries()) {
-        var _ref312 = _slicedToArray(_ref313, 2);
+    for (var _ref333 of path1.entries()) {
+        var _ref332 = _slicedToArray(_ref333, 2);
 
-        var i = _ref312[0];
-        var v = _ref312[1];
+        var i = _ref332[0];
+        var v = _ref332[1];
 
         if (i == 0 || i == 1) continue; //skip root
 
@@ -1817,11 +1891,11 @@ function PST(G) {
     var nodeCount = 0;
     var middleLayer = -1;
     var flat = Util.flatten;
-    for (var _ref323 of layers.entries()) {
-        var _ref322 = _slicedToArray(_ref323, 2);
+    for (var _ref343 of layers.entries()) {
+        var _ref342 = _slicedToArray(_ref343, 2);
 
-        var i = _ref322[0];
-        var layer = _ref322[1];
+        var i = _ref342[0];
+        var layer = _ref342[1];
 
         nodeCount += layer.length;
         if (nodeCount > n / 2) {
@@ -1869,7 +1943,7 @@ function matching(G) {
         var m1 = matching(g1),
             m2 = matching(g2);
         var m = m1.concat(m2);
-        var _g = g1.union(g2);
+        var _g2 = g1.union(g2);
         for (var v of s) {}
         return m;
     }
@@ -1879,17 +1953,39 @@ document.addEventListener('DOMContentLoaded', function () {
     return GUI.init();
 });
 var TestGraphs = {
-    testAGraph: function testAGraph() {
-        return Graph.fromAscii("\n__________\n         1\n\n2\n\n         3\n__________", [1, 2, 3]);
+    random: function random(n) {
+        return PlanarGraph.randomPlanarGraph(+document.getElementById("vertexCount").value);
     },
-    testBGraph: function testBGraph() {
-        return Graph.fromAscii("\n__________\n     1\n\n     2\n\n3        4", [1, 2, 3], [2, 4]);
-    },
-    testCGraph: function testCGraph() {
-        return Graph.fromAscii("\n__________\n1  2\n\n3  4\n__________", [1, 2, 4, 3, 1], [2, 3]);
-    },
-    testDGraph: function testDGraph() {
-        return Graph.fromAscii("\n__________\n1  2  3\n\n4  5  6  7\n\n  8  9\n__________", [1, 2, 3, 6, 5, 4, 1], [2, 5, 3], [7, 6, 9, 8, 4]);
+    triangles: function triangles(n) {
+        // aspect ratio
+        var r = 4 / 3;
+        var w = Math.sqrt(n * r) | 0,
+            h = w / r | 0;
+        var g = new PlanarGraph();
+        var layers = Util.array(h, function (i) {
+            return Util.array(w, function (j) {
+                var v = new Vertex();
+                g.addVertex(v);
+                return v;
+            });
+        });
+        var pos = new Map();
+        for (var l = 0; l < layers.length; l++) {
+            var la = layers[l],
+                lb = layers[l + 1];
+            for (var i of la.keys()) {
+                pos.set(la[i], { y: l, x: i + l % 2 / 2 });
+                if (lb) g.addEdgeUndirected(la[i], lb[i]);
+                if (i > 0) {
+                    g.addEdgeUndirected(la[i], la[i - 1]);
+                    if (lb) {
+                        if (l % 2) g.addEdgeUndirected(la[i - 1], lb[i]);else g.addEdgeUndirected(la[i], lb[i - 1]);
+                    }
+                }
+            }
+        }
+        g.setPositionMap(pos.get.bind(pos));
+        return g;
     }
 };
 //# sourceMappingURL=tmp.js.map

@@ -139,6 +139,7 @@ class Graph {
 		return { nodes: nodes, edges: edges };
 	}
 	draw(sigmainst: SigmaJs.Sigma) {
+		if(!sigmainst) throw Error("no sigmainst passed");
 		const s = this.toSigma();
 		sigmainst.graph.read(s);
 		sigmainst.refresh();
@@ -147,6 +148,36 @@ class Graph {
 			sigmainst.startForceAtlas2();
 			setTimeout(() => sigmainst.stopForceAtlas2(), 2000);
 		}
+	}
+	serialize() {
+		const map: {[v:number]: number[]} = {};
+		const pos: {[v:number]: Point} = {};
+		for(const v of this.getVertices()) {
+			map[v.id] = [];
+			if(this.positionMap) pos[v.id] = this.positionMap(v);
+			for(const v2 of this.getEdgesUndirected(v)) map[v.id].push(v2.id);
+		}
+		if(this.positionMap) return JSON.stringify({v:map, pos:pos});
+		else return JSON.stringify({v:map});
+	}
+	static deserialize(json: string) {
+		const data: {v: {[v:number]: number[]}, pos?: {[v:number]: Point}} = JSON.parse(json);
+		const vs = new Map<number, Vertex>();
+		for(const vid of Object.keys(data.v)) {
+			const v: Vertex = new Vertex();
+			vs.set(+vid, v);
+		} 
+		const g = new PlanarGraph(vs.values());
+		for(const v1id of Object.keys(data.v)) for(const v2id of data.v[+v1id]) {
+			const v1 = vs.get(+v1id);
+			const v2 = vs.get(v2id);
+			if(!g.hasEdgeUndirected(v1,v2)) g.addEdgeUndirected(v1, v2);
+		}
+		if(data.pos) {
+			const map = new Map<Vertex, Point>(Object.keys(data.pos).map(v => <[Vertex,Point]>[vs.get(+v), data.pos[+v]]));
+			g.setPositionMap(map.get.bind(map));
+		}
+		return g;
 	}
 	static randomGraph(n = 10, m = 15) {
 		const verts: Vertex[] = [];

@@ -29,9 +29,9 @@ class GraphAlgorithm {
 
 const Algorithms = [
 	new GraphAlgorithm("Breadth First Search", () => BFS.run(g)),
-	new GraphAlgorithm("Tree Lemma (Separator ≤ 2h + 1)", () => treeLemma(g, StepByStep.complete(BFS.run(g)))),
-	new GraphAlgorithm("Find embedding", () => findPlanarEmbedding(g)),
-	new GraphAlgorithm("vertex disjunct Menger algorithm", () => mengerVertexDisjunct(g, g.getRandomVertex(), g.getRandomVertex()))
+	new GraphAlgorithm("vertex disjunct Menger algorithm", () => mengerVertexDisjunct(g, g.getRandomVertex(), g.getRandomVertex())),
+	new GraphAlgorithm("Find planar embedding", () => findPlanarEmbedding(g)),
+	new GraphAlgorithm("Tree Lemma (incomplete) (Separator ≤ 2h + 1)", () => treeLemma(g, StepByStep.complete(BFS.run(g)))),
 ];
 
 module GUI {
@@ -85,29 +85,49 @@ module GUI {
 			addPositions('bfs', StepByStep.complete(BFS.run(g)).getTreeOrderPositions()); animatePositions('bfs');
 		},
 		bfsHighlights: () => {
-			highlightEdges(g, "#000000", { set: StepByStep.complete(BFS.run(g)).getUsedEdges(), color: Color.PrimaryHighlight });
+			highlightEdges(g, Color.Normal, { set: StepByStep.complete(BFS.run(g)).getUsedEdges(), color: Color.PrimaryHighlight });
 			sigmainst.refresh();
+		},
+		forceLayout: () => {
+			sigmainst.configForceAtlas2({ slowDown: 1 });
+			sigmainst.startForceAtlas2();
+			setTimeout(() => sigmainst.stopForceAtlas2(), 2000);
 		},
 		noHighlights: () => {
-			highlightEdges(g, "#000000");
+			highlightEdges(g, Color.Normal);
+			highlightVertices(g, Color.Normal)
 			sigmainst.refresh();
 		},
-		newRandomPlanarGraph: () => {
+		loadGraph: () => {
 			onAlgorithmFinish();
 			sigmainst.graph.clear();
-			g = PlanarGraph.randomPlanarGraph(+(<HTMLInputElement>document.getElementById("vertexCount")).value);
+			g = TestGraphs[$("#selectGraph").val()](+$("#vertexCount").val());
+			g.draw(sigmainst);
+		},
+		replaceGraph: (newg:PlanarGraph) => {
+			sigmainst.graph.clear();
+			g = newg;
 			g.draw(sigmainst);
 		}
 	}
 
 	export function init() {
-		sigmainst = new sigma('graph-container');
-		Macros.newRandomPlanarGraph();
-		const select = <HTMLSelectElement>$("#selectAlgorithm")[0];
-		$(select).change(() => onAlgorithmFinish());
+		sigmainst = new sigma({
+			container:$("#graph-container")[0],
+			settings: {
+				minEdgeSize: 0, maxEdgeSize: 4
+			}
+		});
+		const algoSelect = <HTMLSelectElement>$("#selectAlgorithm")[0];
+		$(algoSelect).change(() => onAlgorithmFinish());
 		for (let [i, algo] of Algorithms.entries()) {
-			select.add(new Option(algo.name, i + "", i === 0));
+			algoSelect.add(new Option(algo.name, i + "", i === 0));
 		}
+		const graphSelect = <HTMLSelectElement>$("#selectGraph")[0];
+		for (let [i,g] of Object.keys(TestGraphs).entries()) {
+			graphSelect.add(new Option(g, g, i === 0));
+		}
+		Macros.loadGraph();
 	}
 
 }
@@ -243,7 +263,7 @@ function addPositions(prefix: string, posMap: Iterable<[Vertex, { x: number, y: 
 		node[prefix + "_y"] = y;
 	}
 }
-function animatePositions(prefix: string, nodes?:string[], duration?:number, callback?:()=>void) {
+function animatePositions(prefix: string, nodes?:string[], duration:number = 1000, callback?:()=>void) {
 	sigma.plugins.animate(sigmainst, {
 		x: prefix + '_x', y: prefix + '_y'
 	}, {
@@ -259,10 +279,10 @@ function highlightEdges(g: Graph, othersColor: string, ...edgeSets: Array<{ set:
 		const edge = sigmainst.graph.edges(_edge.id);
 		if (result !== undefined) {
 			edge.color = result.color;
-			edge.size = 6;
+			edge.size = 3;
 		} else if (othersColor !== undefined) {
 			edge.color = othersColor;
-			edge.size = undefined;
+			edge.size = 1;
 		}
 	}
 }
@@ -436,125 +456,120 @@ function vertexArrayToEdges(path:Vertex[], wrapAround = false) {
 	return pathEdges;
 }
 function* mengerVertexDisjunct(orig_g:PlanarGraph, s:Vertex, t:Vertex): StepByStepAlgorithm<Vertex[][]> {
-	let pathCounter = 0;
-	let paths:Vertex[][] = [];
 	const g = orig_g.clone();
+	const foundPaths:Vertex[][] = [];
 	class Info {
-		get previous() {return this.path[this.pathIndex - 1]; }
-		get next() {return this.path[this.pathIndex + 1]; }
-		constructor(public path: Vertex[], public pathIndex: number) {}
-		static fromPrevious(i:Info, v:Vertex) {
-			let path = i.path;
-			if(i.path.length === 1) path = path.slice();
-			if(path.length > i.pathIndex) path.splice(i.pathIndex + 1);
-			path.push(v);
-			return new Info(path, i.pathIndex+1);
-		}
+		pathId: number;
+		pathIndex: number;
 	}
-	let infoMap = new Map<Vertex, Info>([[s, new Info([s], 0)]]);
-	const stHighlight = {set:Vertex.Set(s,t), color:Color.TertiaryHighlight};
-	function* visit(v: Vertex, prev: Vertex): StepByStepAlgorithm<Vertex[][]> {
-		if(!v) return;
-		if(v === infoMap.get(prev).previous) {
-			const next = g.getNextEdge(v, prev);
-			g.removeEdgeUndirected(v, prev);
-			yield* visit(next, v);
-			return true;
-		}
-		if(v === s) {
-			const next = g.getNextEdge(prev, v);
-			// g.removeEdgeUndirected(prev, v);
-			yield* visit(next, prev);
-			return;
-		}
-		if(v === t) {
-			yield {
-				textOutput:"Found path!",
-				newEdgeHighlights:[{set:Edge.Set(Edge.undirected(prev, v)),color:Color.PrimaryHighlight}]
-			};
-			const info = infoMap.get(prev);
-			info.path.push(v);
-			paths.push(info.path);
-			return true;
-		}
-		if(infoMap.has(v)) {
-			const theirInfo = infoMap.get(v);
-			console.log(`already visited ${v} from ${theirInfo.previous} to ${theirInfo.next}, now from ${prev}`);
-			if(theirInfo.path[theirInfo.pathIndex] === v && theirInfo.next && g.edgeIsBetween(v, prev, theirInfo.previous, theirInfo.next)) {
-				console.log("conflict from right");
-				// conflict from right
-				// swap prev arrays
-				const thisInfo = infoMap.get(prev);
-				[thisInfo.pathIndex, theirInfo.pathIndex] = [theirInfo.pathIndex, thisInfo.pathIndex];
-				const oldStartSegment = thisInfo.path;
-				thisInfo.path = thisInfo.path.slice(); theirInfo.path = theirInfo.path.slice();
-				const newStartSegment = theirInfo.path.splice(0, thisInfo.pathIndex, ...thisInfo.path);
-				thisInfo.path.splice(0, thisInfo.path.length, ...newStartSegment);
-				prev = thisInfo.previous;
-				yield {
-					textOutput: "Conflict from right - replacing segments",
-					resetEdgeHighlights: Color.GrayedOut,
-					newEdgeHighlights: [
-						{set: Edge.Set(...vertexArrayToEdges(newStartSegment)), color:Color.PrimaryHighlight},
-						{set: Edge.Set(...vertexArrayToEdges(oldStartSegment)), color: Color.SecondaryHighlight},
-						{set: Edge.Set(...vertexArrayToEdges(theirInfo.path)), color:Color.TertiaryHighlight}
-					]
-				}
+	const infos = new Map<Vertex, Info>();
+	let pathId = 0;
+	for(const startv of g.getEdgesUndirected(s)) {
+		const p = {
+			arr: [s,startv],
+			get v(){ return this.arr[this.arr.length-1]; },
+			set v(x) { this.arr[this.arr.length-1] = x; },
+			get prev(){ return this.arr[this.arr.length-2]; },
+			set prev(x) { this.arr[this.arr.length-2] = x; },
+		};
+		while(true) {
+			if(p.v === p.arr[p.arr.length - 3]) {
+				// edge iteration came full circle, go back
+				p.arr.pop();
 			}
-			console.log("conflict from left");
-			// conflict from left
-			// backtrack remove
-			const next = g.getNextEdge(prev, v);
-			g.removeEdgeUndirected(prev, v);
-			yield* visit(next, prev);
-			return;
-		} else {
-			infoMap.set(v, Info.fromPrevious(infoMap.get(prev), v));
-			console.log(infoMap.get(v));
+			if(p.v === s) {
+				// skip
+				p.v = g.getNextEdge(p.prev, p.v);
+				continue;
+			}
 			yield {
-				textOutput: "Visiting "+v,
-				resetNodeHighlights: Color.GrayedOut,
+				textOutput: `exploring node ${p.v} at index ${p.arr.length-1} of path ${pathId+1}`,
 				resetEdgeHighlights: Color.Invisible,
-				newNodeHighlights: [
-					{set: Vertex.Set(v), color:Color.PrimaryHighlight},
-					{set: Vertex.Set(prev), color:Color.SecondaryHighlight},
-					stHighlight,
-					{set: Vertex.Set(...infoMap.keys()), color: Color.Normal}
-				],
+				resetNodeHighlights: Color.GrayedOut,
 				newEdgeHighlights: [
-					{set: Edge.Set(...vertexArrayToEdges(infoMap.get(v).path)), color:Color.PrimaryHighlight},
-					{set: Edge.Set(...Util.flatten(paths.map(path => vertexArrayToEdges(path)))), color: Color.Normal},
+					{set: Edge.Set(...vertexArrayToEdges(p.arr)), color:Color.PrimaryHighlight},
+					{set: Edge.Set(...Util.flatten(foundPaths.map(path => vertexArrayToEdges(path)))), color:Color.Normal},
 					{set: g.getAllEdgesUndirected(), color: Color.GrayedOut}
+				],
+				newNodeHighlights: [
+					{set: Vertex.Set(p.v), color:Color.PrimaryHighlight},
+					{set: Vertex.Set(p.prev), color:Color.SecondaryHighlight},
+					{set: Vertex.Set(s,t), color:Color.TertiaryHighlight},
+					{set: Vertex.Set(...Util.flatten(foundPaths)), color:Color.Normal}
 				]
 			}
-			const res = yield *visit(g.getNextEdge(v, prev), v);
-			if(res === true) return true;
-			/*for(const next of g.getNextEdges(v, prev)) {
-				const res = yield *visit(next, v);
-				console.log(next, res);
-				if(res === true) return true;
-			}*/
+			if(p.v === t) {
+				if(foundPaths[pathId]) throw Error("nooo");
+				foundPaths[pathId] = p.arr;
+				pathId++;
+				break;
+			}
+			if(infos.has(p.v)) {
+				// conflict
+				const {pathId:theirPathId, pathIndex:theirPathIndex} = infos.get(p.v);
+				let backtrackRemove = false;
+				if(theirPathId == pathId) {
+					// conflict path is self
+					if(p.arr[theirPathIndex] === p.v) {
+						// did not backtrack out of that path => conflict from left
+						backtrackRemove = true;
+					} else {
+						// node already visited, but had to backtrack => ignore node
+						backtrackRemove = true;
+					}
+				} else {
+					const otherPath = foundPaths[theirPathId];
+					if(!otherPath) throw Error("noo");
+					if(otherPath[theirPathIndex] === p.v) {
+						// node already contained in complete path
+						if(g.edgeIsBetween(p.v, p.prev, otherPath[theirPathIndex - 1], otherPath[theirPathIndex + 1])) {
+							// conflict from right => replace path segments
+							const myNewPath = otherPath.splice(0, theirPathIndex + 1, ...p.arr);
+							yield {textOutput: "replacing path segments"};
+							for(const v of myNewPath) v === s || (infos.get(v).pathId = pathId);
+							for(const v of p.arr) v === s || (infos.get(v).pathId = theirPathId);
+							for(const [i, v] of otherPath.entries()) v === s || v === t || (infos.get(v).pathIndex = i);
+							p.arr = myNewPath;
+							// new iteration (resulting in conflict from left)
+							continue;
+						} else {
+							// conflict from left
+							backtrackRemove = true;
+						}
+					} else {
+						// visited, but not in final path => ignore
+					}
+				}
+				if(backtrackRemove) {
+					const next = g.getNextEdge(p.prev, p.v);
+					if(next === p.v) break;
+					// g.removeEdgeUndirected(p.prev, p.v);
+					p.v = next;
+					if(p.prev === s) break; // backtracked into start, abort iteration
+					continue;
+				}
+			}
+			infos.set(p.v, {pathIndex: p.arr.length - 1, pathId: pathId});
+			p.arr.push(g.getNextEdge(p.v, p.prev));
 		}
-	}
-	for(const v of g.getEdgesUndirected(s)) {
-		pathCounter++;
-		yield {
-			textOutput: "Starting new path "+pathCounter,
-			resetEdgeHighlights: Color.GrayedOut,
-			resetNodeHighlights: Color.Normal,
-			newEdgeHighlights: [{set:Edge.Set(...Util.flatten(paths.map(path => vertexArrayToEdges(path)))), color: Color.Normal}],
-			newNodeHighlights: [stHighlight]
-		}
-		yield *visit(v, s);
 	}
 	yield {
-		finalResult: paths,
-		textOutput: `Found ${paths.length} s-t-paths`
+		textOutput: `finished. found ${foundPaths.length} paths from ${s} to ${t}`,
+		resetEdgeHighlights: Color.GrayedOut,
+		resetNodeHighlights: Color.GrayedOut,
+		newEdgeHighlights: [
+			{set: Edge.Set(...Util.flatten(foundPaths.map(path => vertexArrayToEdges(path)))), color:Color.Normal},
+		],
+		newNodeHighlights: [
+			{set: Vertex.Set(s,t), color:Color.TertiaryHighlight},
+			{set: Vertex.Set(...Util.flatten(foundPaths)), color:Color.Normal}
+		],
+		finalResult: foundPaths
 	}
 }
 
 type Separator = { v1: Iterable<Vertex>, v2: Iterable<Vertex>, s: Iterable<Vertex> };
-function* treeLemma(G: Graph, bfs: BFS): StepByStepAlgorithm<Separator> {
+function* treeLemma(G: PlanarGraph, bfs: BFS): StepByStepAlgorithm<Separator> {
 	const parentMap = new Map<Vertex, Vertex>();
 	for (const layer of bfs.treeLayers) for (const {element, parent} of layer) parentMap.set(element, parent);
 
@@ -599,7 +614,7 @@ function* treeLemma(G: Graph, bfs: BFS): StepByStepAlgorithm<Separator> {
 	const nonTreeEdges = [...G.getAllEdgesUndirected()].filter(e => !treeEdges.has(e));
 	const nonTreeEdge = Util.randomChoice(nonTreeEdges);
 
-	const path1 = [nonTreeEdge.v1], path2 = [nonTreeEdge.v2];
+	let path1 = [nonTreeEdge.v1], path2 = [nonTreeEdge.v2];
 	while (parentMap.get(path1[0]) !== undefined) path1.unshift(parentMap.get(path1[0]));
 	const path1Set = new Set(path1);
 	// only go up until find crossing with other path
@@ -615,6 +630,11 @@ function* treeLemma(G: Graph, bfs: BFS): StepByStepAlgorithm<Separator> {
 	// find common root
 	const commonRoot = path2[0];
 	while (path1[0] !== commonRoot) path1.shift();
+	if(parentMap.has(commonRoot) && G.edgeIsBetween(commonRoot, path2[1], path1[1], parentMap.get(commonRoot))) {
+		// p2 is right of p1
+	} else {
+		[path1, path2] = [path2, path1];
+	}
 
 	const path1Edges: Edge[] = vertexArrayToEdges(path1);
 	const path2Edges: Edge[] = vertexArrayToEdges(path2);
@@ -714,8 +734,40 @@ interface Point {
 }
 
 
-const TestGraphs = {
-	testAGraph: () => {
+var TestGraphs:{[name:string]: (n:number) => PlanarGraph} = {
+	random: n => {
+		return PlanarGraph.randomPlanarGraph(+(<HTMLInputElement>document.getElementById("vertexCount")).value);
+	},
+	triangles: n => {
+		// aspect ratio
+		const r = 4/3;
+		const w = Math.sqrt(n * r)|0, h = (w/r)|0;
+		const g = new PlanarGraph();
+		const layers:Vertex[][] = Util.array(h, i => Util.array(w, j => {
+			const v = new Vertex();
+			g.addVertex(v);
+			return v;
+		}));
+		const pos = new Map<Vertex, Point>();
+		for(let l = 0; l < layers.length; l++) {
+			const la = layers[l], lb = layers[l+1];
+			for(const i of la.keys()) {
+				pos.set(la[i], {y:l, x: i + (l%2)/2});
+				if(lb) g.addEdgeUndirected(la[i], lb[i]);
+				if(i>0) {
+					g.addEdgeUndirected(la[i], la[i-1]);
+					if(lb) {
+						if(l%2) g.addEdgeUndirected(la[i-1], lb[i]);
+						else g.addEdgeUndirected(la[i], lb[i-1]);
+					}
+				}
+			}
+		}
+			
+		g.setPositionMap(pos.get.bind(pos));
+		return g;
+	},
+	/*testAGraph: () => {
 		return Graph.fromAscii(
 			`
 __________
@@ -755,5 +807,5 @@ __________
 
   8  9
 __________`, [1, 2, 3, 6, 5, 4, 1], [2, 5, 3], [7, 6, 9, 8, 4]);
-	}
+	}*/
 }
