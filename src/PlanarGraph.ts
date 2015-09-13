@@ -12,6 +12,9 @@ class Edge {
 	static ordered(v1: Vertex, v2: Vertex) {
 		return new Edge(v1, v2);
 	}
+	toSigma() {
+		return { size: 0.7, id: this.id, source: `${this.v1.id}`, target: `${this.v2.id}` }
+	}
 	toString = () => this.id;
 	static [ActualSet.hash](e: Edge) {
 		if (!(e instanceof Edge)) throw new Error("assertion error");
@@ -19,6 +22,12 @@ class Edge {
 	}
 	static Set(...e: Edge[]) {
 		return new ActualSet(Edge, e);
+	}
+	static Path(path: Vertex[], wrapAround = false) {
+		const pathEdges: Edge[] = [];
+		for (let i = 0; i < path.length - 1; i++) pathEdges.push(Edge.undirected(path[i], path[i + 1]));
+		if (wrapAround && path.length > 1) pathEdges.push(Edge.undirected(path[path.length - 1], path[0]));
+		return pathEdges;
 	}
 }
 
@@ -62,7 +71,7 @@ class Graph {
 	}
 	addVertex(v: Vertex) {
 		this.V.add(v);
-		if(!this.E.has(v)) this.E.set(v, []);
+		if (!this.E.has(v)) this.E.set(v, []);
 	}
 	addEdgeUndirected(from: Vertex, to: Vertex) {
 		console.log(`adding (${from},${to})`);
@@ -91,8 +100,8 @@ class Graph {
 	getRandomVertex() {
 		return Util.randomChoice([...this.V]);
 	}
-	getVertexById(id:number):Vertex {
-		for(let v of this.V) if(v.id === id) return v;
+	getVertexById(id: number): Vertex {
+		for (let v of this.V) if (v.id === id) return v;
 		return null;
 	}
 
@@ -103,7 +112,7 @@ class Graph {
 		}
 		throw `(${v1},${v2}) does not exist`;
 	}
-	removeEdgeUndirected(v1:Vertex, v2:Vertex) {
+	removeEdgeUndirected(v1: Vertex, v2: Vertex) {
 		this.getEdgesUndirected(v1).splice(this.getEdgeIndex(v1, v2), 1);
 		this.getEdgesUndirected(v2).splice(this.getEdgeIndex(v2, v1), 1);
 	}
@@ -134,12 +143,12 @@ class Graph {
 		});
 		const edges: SigmaJs.Edge[] = [];
 		for (let e of this.getAllEdgesUndirected()) {
-			edges.push({ id: e.id, source: `${e.v1.id}`, target: `${e.v2.id}` });
+			edges.push(e.toSigma());
 		}
 		return { nodes: nodes, edges: edges };
 	}
 	draw(sigmainst: SigmaJs.Sigma) {
-		if(!sigmainst) throw Error("no sigmainst passed");
+		if (!sigmainst) throw Error("no sigmainst passed");
 		const s = this.toSigma();
 		sigmainst.graph.read(s);
 		sigmainst.refresh();
@@ -150,32 +159,33 @@ class Graph {
 		}
 	}
 	serialize() {
-		const map: {[v:number]: number[]} = {};
-		const pos: {[v:number]: Point} = {};
-		for(const v of this.getVertices()) {
+		const map: { [v: number]: number[] } = {};
+		const pos: { [v: number]: Point } = {};
+		for (const v of this.getVertices()) {
 			map[v.id] = [];
-			if(this.positionMap) pos[v.id] = this.positionMap(v);
-			for(const v2 of this.getEdgesUndirected(v)) map[v.id].push(v2.id);
+			if (this.positionMap) pos[v.id] = this.positionMap(v);
+			for (const v2 of this.getEdgesUndirected(v)) map[v.id].push(v2.id);
 		}
-		if(this.positionMap) return JSON.stringify({v:map, pos:pos});
-		else return JSON.stringify({v:map});
+		if (this.positionMap) return JSON.stringify({ v: map, pos: pos });
+		else return JSON.stringify({ v: map });
 	}
 	static deserialize(json: string) {
-		const data: {v: {[v:number]: number[]}, pos?: {[v:number]: Point}} = JSON.parse(json);
+		const data: { v: { [v: number]: number[] }, pos?: { [v: number]: Point } } = JSON.parse(json);
 		const vs = new Map<number, Vertex>();
-		for(const vid of Object.keys(data.v)) {
+		for (const vid of Object.keys(data.v)) {
 			const v: Vertex = new Vertex();
 			vs.set(+vid, v);
-		} 
+		}
 		const g = new PlanarGraph(vs.values());
-		for(const v1id of Object.keys(data.v)) for(const v2id of data.v[+v1id]) {
+		for (const v1id of Object.keys(data.v)) for (const v2id of data.v[+v1id]) {
 			const v1 = vs.get(+v1id);
 			const v2 = vs.get(v2id);
-			if(!g.hasEdgeUndirected(v1,v2)) g.addEdgeUndirected(v1, v2);
+			if (!g.hasEdgeUndirected(v1, v2)) g.addEdgeUndirected(v1, v2);
 		}
-		if(data.pos) {
-			const map = new Map<Vertex, Point>(Object.keys(data.pos).map(v => <[Vertex,Point]>[vs.get(+v), data.pos[+v]]));
+		if (data.pos) {
+			const map = new Map<Vertex, Point>(Object.keys(data.pos).map(v => <[Vertex, Point]>[vs.get(+v), data.pos[+v]]));
 			g.setPositionMap(map.get.bind(map));
+			
 		}
 		return g;
 	}
@@ -234,44 +244,64 @@ class PlanarGraph extends Graph {
 		super(V, E);
 	}
 
-	triangulateAll(): Graph {
+	/**TODO: don't modify self graph */
+	*triangulateAll(): StepByStepAlgorithm<PlanarGraph> {
+		const g = this;
 		type E = [Vertex, Vertex];
 		const invert = ([v1, v2]: E) => <E>[v2, v1];
-		const Θ = ([v1, v2]: E) => <E>[v1, this.getNextEdge(v1, v2)];
+		const Θ = ([v1, v2]: E) => <E>[v1, g.getNextEdge(v1, v2)];
 		const Θstar = (e: E) => Θ(invert(e));
 		const s = ([s, t]: E) => s, t = ([s, t]: E) => t;
 		const equal = ([s1, t1]: E, [s2, t2]: E) => s1 === s2 && t1 === t2;
-		const triangulate = (e: E, é: E) => {
+		const triangulate = function* (e: E, é: E): StepByStepAlgorithm<PlanarGraph> {
 			if (equal(e, é)) return;
-			console.log(`triangulating ${e} and ${é}`);
 			if (s(e) !== s(é)) throw "assertion error";
 			const v = s(e);
 			const é́ = Θstar(é);
 			if (equal(Θstar(é́), invert(e))) return; // already triangular
-			if (this.hasEdgeUndirected(v, t(é́)) || t(é́) === v) {
-				this.addEdgeUndirected(t(é), t(e), v, this.getPrevEdge(t(e), v));
+			yield {
+				textOutput: `triangulating ${e} and ${é}`,
+				resetNodeHighlights: Color.Normal,
+				resetEdgeHighlights: Color.Normal,
+				newNodeHighlights: [
+					{ set: Vertex.Set(v, t(e), t(é)), color: Color.PrimaryHighlight }
+				],
+				newEdgeHighlights: [
+					{ set: Edge.Set(...Edge.Path(g.getFacet(v, t(e)), true)), color: Color.SecondaryHighlight }
+				]
+			};
+			if (g.hasEdgeUndirected(v, t(é́)) || t(é́) === v) {
+				g.addEdgeUndirected(t(é), t(e), v, g.getPrevEdge(t(e), v));
+				sigmainst.graph.addEdge(Edge.undirected(t(é), t(e)).toSigma());
 				return;
 			}
 			// todo: sonderfall
 			const eneu: E = [s(é), t(é́)];
-			this.addEdgeUndirected(s(eneu), t(eneu), this.getPrevEdge(s(eneu), t(é)), t(é));
-			triangulate(e, eneu);
+			g.addEdgeUndirected(s(eneu), t(eneu), g.getPrevEdge(s(eneu), t(é)), t(é));
+			sigmainst.graph.addEdge(Edge.undirected(s(eneu), t(eneu)).toSigma());
+			yield* triangulate(e, eneu);
 		}
-		for (const v of Util.shuffle([...this.V])) {
-			for (const v2 of this.getEdgesUndirected(v)) {
+		for (const v of Util.shuffle([...g.V])) {
+			for (const v2 of g.getEdgesUndirected(v)) {
 				if (v === v2) continue;
 				const e: E = [v, v2];
 				const é = Θ(e);
-				triangulate(e, é);
+				yield* triangulate(e, é);
 			}
 		}
-		return this;
+		yield {
+			textOutput: "Triangulation complete.",
+			resetEdgeHighlights: Color.Normal,
+			resetNodeHighlights: Color.Normal,
+			finalResult: g
+		}
+		return g;
 	}
 
 	*getNextEdges(v1: Vertex, v2: Vertex) {
 		let v2start = v2;
 		v2 = this.getNextEdge(v1, v2);
-		while(v2 !== v2start) {
+		while (v2 !== v2start) {
 			yield v2;
 			v2 = this.getNextEdge(v1, v2)
 		}
@@ -298,8 +328,8 @@ class PlanarGraph extends Graph {
 		}
 	}
 	edgeIsBetween(base: Vertex, target: Vertex, rightEdge: Vertex, leftEdge: Vertex) {
-		for(let edge of this.getEdgesBetween(rightEdge, base, leftEdge))
-			if(edge === target) return true;
+		for (let edge of this.getEdgesBetween(rightEdge, base, leftEdge))
+			if (edge === target) return true;
 		return false;
 	}
 	addEdgeUndirected(from: Vertex, to: Vertex, afterEdge1?: Vertex, afterEdge2?: Vertex) {
@@ -316,14 +346,17 @@ class PlanarGraph extends Graph {
 			const index2 = afterEdge2 === undefined ? edges2.length - 1 : this.getEdgeIndex(to, afterEdge2);
 			edges2.splice(index2 + 1, 0, from);
 		}
-		console.log(`${from}: ${this.getEdgesUndirected(from)}, ${to}: ${this.getEdgesUndirected(to)}`);
+		console.log(`${from}: ${this.getEdgesUndirected(from) }, ${to}: ${this.getEdgesUndirected(to) }`);
+	}
+	getFacet(v: Vertex, v2: Vertex) {
+		const facet = [v, v2];
+		while (facet[facet.length - 1] !== v) facet.push(this.getPrevEdge(facet[facet.length - 1], facet[facet.length - 2]));
+		facet.pop();//no duplicate point
+		return facet;
 	}
 	*facetsAround(v: Vertex) {
-		for(let v2 of this.getEdgesUndirected(v)) {
-			const facet = [v, v2];
-			while(facet[facet.length-1] !== v) facet.push(this.getPrevEdge(facet[facet.length-1], facet[facet.length-2]));
-			facet.pop();//no duplicate point
-			yield facet;
+		for (let v2 of this.getEdgesUndirected(v)) {
+			yield this.getFacet(v, v2);
 		}
 	}
 
@@ -343,10 +376,10 @@ class PlanarGraph extends Graph {
 		}
 		return true;
 	}
-	
+
 	clone() {
 		const e = [...this.E];
-		for(const x of e) x[1] = x[1].slice(); // clone edge arrays
+		for (const x of e) x[1] = x[1].slice(); // clone edge arrays
 		return new PlanarGraph(this.V, e);
 	}
 

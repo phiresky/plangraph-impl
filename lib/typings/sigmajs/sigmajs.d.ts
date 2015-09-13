@@ -182,6 +182,7 @@ declare module SigmaJs{
         parsers: Parsers;
         plugins: Plugins;
         svg: SVG;
+        renderers: any;
     }
 
     interface Settings {

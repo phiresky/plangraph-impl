@@ -418,6 +418,11 @@ var Edge = (function () {
     }
 
     _createClass(Edge, [{
+        key: "toSigma",
+        value: function toSigma() {
+            return { size: 0.7, id: this.id, source: "" + this.v1.id, target: "" + this.v2.id };
+        }
+    }, {
         key: "id",
         get: function get() {
             return "e" + this.v1.id + "-" + this.v2.id;
@@ -449,6 +454,17 @@ var Edge = (function () {
             }
 
             return new ActualSet(Edge, e);
+        }
+    }, {
+        key: "Path",
+        value: function Path(path) {
+            var wrapAround = arguments.length <= 1 || arguments[1] === undefined ? false : arguments[1];
+
+            var pathEdges = [];
+            for (var i = 0; i < path.length - 1; i++) {
+                pathEdges.push(Edge.undirected(path[i], path[i + 1]));
+            }if (wrapAround && path.length > 1) pathEdges.push(Edge.undirected(path[path.length - 1], path[0]));
+            return pathEdges;
         }
     }]);
 
@@ -639,7 +655,7 @@ var Graph = (function () {
             });
             var edges = [];
             for (var e of this.getAllEdgesUndirected()) {
-                edges.push({ id: e.id, source: "" + e.v1.id, target: "" + e.v2.id });
+                edges.push(e.toSigma());
             }
             return { nodes: nodes, edges: edges };
         }
@@ -804,11 +820,12 @@ var PlanarGraph = (function (_Graph) {
         _get(Object.getPrototypeOf(PlanarGraph.prototype), "constructor", this).call(this, V, E);
     }
 
+    /**TODO: don't modify self graph */
+
     _createClass(PlanarGraph, [{
         key: "triangulateAll",
-        value: function triangulateAll() {
-            var _this4 = this;
-
+        value: function* triangulateAll() {
+            var g = this;
             var invert = function invert(_ref10) {
                 var _ref102 = _slicedToArray(_ref10, 2);
 
@@ -821,7 +838,7 @@ var PlanarGraph = (function (_Graph) {
 
                 var v1 = _ref112[0];
                 var v2 = _ref112[1];
-                return [v1, _this4.getNextEdge(v1, v2)];
+                return [v1, g.getNextEdge(v1, v2)];
             };
             var Θstar = function Θstar(e) {
                 return Θ(invert(e));
@@ -852,31 +869,45 @@ var PlanarGraph = (function (_Graph) {
                 var t2 = _ref152[1];
                 return s1 === s2 && t1 === t2;
             };
-            var triangulate = function triangulate(e, é) {
+            var triangulate = function* triangulate(e, é) {
                 if (equal(e, é)) return;
-                console.log("triangulating " + e + " and " + é);
                 if (s(e) !== s(é)) throw "assertion error";
                 var v = s(e);
                 var é́ = Θstar(é);
                 if (equal(Θstar(é́), invert(e))) return; // already triangular
-                if (_this4.hasEdgeUndirected(v, t(é́)) || t(é́) === v) {
-                    _this4.addEdgeUndirected(t(é), t(e), v, _this4.getPrevEdge(t(e), v));
+                yield {
+                    textOutput: "triangulating " + e + " and " + é,
+                    resetNodeHighlights: Color.Normal,
+                    resetEdgeHighlights: Color.Normal,
+                    newNodeHighlights: [{ set: Vertex.Set(v, t(e), t(é)), color: Color.PrimaryHighlight }],
+                    newEdgeHighlights: [{ set: Edge.Set.apply(Edge, _toConsumableArray(Edge.Path(g.getFacet(v, t(e)), true))), color: Color.SecondaryHighlight }]
+                };
+                if (g.hasEdgeUndirected(v, t(é́)) || t(é́) === v) {
+                    g.addEdgeUndirected(t(é), t(e), v, g.getPrevEdge(t(e), v));
+                    sigmainst.graph.addEdge(Edge.undirected(t(é), t(e)).toSigma());
                     return;
                 }
                 // todo: sonderfall
                 var eneu = [s(é), t(é́)];
-                _this4.addEdgeUndirected(s(eneu), t(eneu), _this4.getPrevEdge(s(eneu), t(é)), t(é));
-                triangulate(e, eneu);
+                g.addEdgeUndirected(s(eneu), t(eneu), g.getPrevEdge(s(eneu), t(é)), t(é));
+                sigmainst.graph.addEdge(Edge.undirected(s(eneu), t(eneu)).toSigma());
+                yield* triangulate(e, eneu);
             };
-            for (var v of Util.shuffle([].concat(_toConsumableArray(this.V)))) {
-                for (var v2 of this.getEdgesUndirected(v)) {
+            for (var v of Util.shuffle([].concat(_toConsumableArray(g.V)))) {
+                for (var v2 of g.getEdgesUndirected(v)) {
                     if (v === v2) continue;
                     var e = [v, v2];
                     var é = Θ(e);
-                    triangulate(e, é);
+                    yield* triangulate(e, é);
                 }
             }
-            return this;
+            yield {
+                textOutput: "Triangulation complete.",
+                resetEdgeHighlights: Color.Normal,
+                resetNodeHighlights: Color.Normal,
+                finalResult: g
+            };
+            return g;
         }
     }, {
         key: "getNextEdges",
@@ -941,22 +972,27 @@ var PlanarGraph = (function (_Graph) {
             console.log(from + ": " + this.getEdgesUndirected(from) + ", " + to + ": " + this.getEdgesUndirected(to));
         }
     }, {
+        key: "getFacet",
+        value: function getFacet(v, v2) {
+            var facet = [v, v2];
+            while (facet[facet.length - 1] !== v) facet.push(this.getPrevEdge(facet[facet.length - 1], facet[facet.length - 2]));
+            facet.pop(); //no duplicate point
+            return facet;
+        }
+    }, {
         key: "facetsAround",
         value: function* facetsAround(v) {
             for (var v2 of this.getEdgesUndirected(v)) {
-                var facet = [v, v2];
-                while (facet[facet.length - 1] !== v) facet.push(this.getPrevEdge(facet[facet.length - 1], facet[facet.length - 2]));
-                facet.pop(); //no duplicate point
-                yield facet;
+                yield this.getFacet(v, v2);
             }
         }
     }, {
         key: "checkTriangulated",
         value: function checkTriangulated() {
-            var _this5 = this;
+            var _this4 = this;
 
             var has = function has(v1, v2) {
-                return _this5.hasEdgeUndirected(v1, v2);
+                return _this4.hasEdgeUndirected(v1, v2);
             };
             for (var v1 of this.getVertices()) {
                 for (var v2 of this.getEdgesUndirected(v1)) {
@@ -1045,6 +1081,8 @@ var Algorithms = [new GraphAlgorithm("Breadth First Search", function () {
     return BFS.run(g);
 }), new GraphAlgorithm("vertex disjunct Menger algorithm", function () {
     return mengerVertexDisjunct(g, g.getRandomVertex(), g.getRandomVertex());
+}), new GraphAlgorithm("Triangulate Graph", function () {
+    return g.triangulateAll();
 }), new GraphAlgorithm("Find planar embedding", function () {
     return findPlanarEmbedding(g);
 }), new GraphAlgorithm("Tree Lemma (incomplete) (Separator ≤ 2h + 1)", function () {
@@ -1137,12 +1175,27 @@ var GUI;
         }
     };
     function init() {
+        sigma.renderers.def = sigma.renderers.canvas;
         sigmainst = new sigma({
             container: $("#graph-container")[0],
             settings: {
-                minEdgeSize: 0, maxEdgeSize: 4
+                minEdgeSize: 0.5, maxEdgeSize: 4,
+                doubleClickEnabled: false,
+                enableEdgeHovering: true,
+                edgeHoverSizeRatio: 1
             }
         });
+        sigmainst.bind("doubleClickEdge", function (ev) {
+            //console.log(e.data.edge);
+            //for debug purposes
+            var e = ev.data.edge;
+            var s = g.getVertexById(+e.source),
+                t = g.getVertexById(+e.target);
+            sigmainst.graph.dropEdge(e.id);
+            g.removeEdgeUndirected(s, t);
+            sigmainst.refresh();
+        });
+        sigma.plugins.dragNodes(sigmainst, sigmainst.renderers[0]);
         var algoSelect = $("#selectAlgorithm")[0];
         $(algoSelect).change(function () {
             return onAlgorithmFinish();
@@ -1460,7 +1513,7 @@ function resetPositions(G) {
 }
 function* findPlanarEmbedding(g) {
     var embeddedSubgraph = new PlanarGraph();
-    g.triangulateAll();
+    StepByStep.complete(g.triangulateAll());
     sigmainst.graph.clear();
     g.draw(sigmainst);
     yield {
@@ -1590,7 +1643,7 @@ function* findPlanarEmbedding(g) {
             yield {
                 textOutput: "adding facets",
                 resetEdgeHighlights: "#cccccc",
-                newEdgeHighlights: [{ set: Edge.Set.apply(Edge, _toConsumableArray(vertexArrayToEdges(facet, true))), color: Color.PrimaryHighlight }, { set: embeddedSubgraph.getAllEdgesUndirected(), color: Color.Normal }]
+                newEdgeHighlights: [{ set: Edge.Set.apply(Edge, _toConsumableArray(Edge.Path(facet, true))), color: Color.PrimaryHighlight }, { set: embeddedSubgraph.getAllEdgesUndirected(), color: Color.Normal }]
             };
         }
     };
@@ -1607,16 +1660,13 @@ function* findPlanarEmbedding(g) {
         finalResult: map
     };
 }
-function vertexArrayToEdges(path) {
-    var wrapAround = arguments.length <= 1 || arguments[1] === undefined ? false : arguments[1];
-
-    var pathEdges = [];
-    for (var i = 0; i < path.length - 1; i++) {
-        pathEdges.push(Edge.undirected(path[i], path[i + 1]));
-    }if (wrapAround && path.length > 1) pathEdges.push(Edge.undirected(path[path.length - 1], path[0]));
-    return pathEdges;
-}
 function* mengerVertexDisjunct(orig_g, s, t) {
+    yield {
+        textOutput: "starting menger from " + s + " to " + t,
+        resetEdgeHighlights: Color.Normal,
+        resetNodeHighlights: Color.Normal,
+        newNodeHighlights: [{ set: Vertex.Set(s, t), color: Color.TertiaryHighlight }]
+    };
     var g = orig_g.clone();
     var foundPaths = [];
 
@@ -1665,8 +1715,8 @@ function* mengerVertexDisjunct(orig_g, s, t) {
                 textOutput: "exploring node " + p.v + " at index " + (p.arr.length - 1) + " of path " + (pathId + 1),
                 resetEdgeHighlights: Color.Invisible,
                 resetNodeHighlights: Color.GrayedOut,
-                newEdgeHighlights: [{ set: Edge.Set.apply(Edge, _toConsumableArray(vertexArrayToEdges(p.arr))), color: Color.PrimaryHighlight }, { set: Edge.Set.apply(Edge, _toConsumableArray(Util.flatten(foundPaths.map(function (path) {
-                        return vertexArrayToEdges(path);
+                newEdgeHighlights: [{ set: Edge.Set.apply(Edge, _toConsumableArray(Edge.Path(p.arr))), color: Color.PrimaryHighlight }, { set: Edge.Set.apply(Edge, _toConsumableArray(Util.flatten(foundPaths.map(function (path) {
+                        return Edge.Path(path);
                     })))), color: Color.Normal }, { set: g.getAllEdgesUndirected(), color: Color.GrayedOut }],
                 newNodeHighlights: [{ set: Vertex.Set(p.v), color: Color.PrimaryHighlight }, { set: Vertex.Set(p.prev), color: Color.SecondaryHighlight }, { set: Vertex.Set(s, t), color: Color.TertiaryHighlight }, { set: Vertex.Set.apply(Vertex, _toConsumableArray(Util.flatten(foundPaths))), color: Color.Normal }]
             };
@@ -1741,13 +1791,14 @@ function* mengerVertexDisjunct(orig_g, s, t) {
         resetEdgeHighlights: Color.GrayedOut,
         resetNodeHighlights: Color.GrayedOut,
         newEdgeHighlights: [{ set: Edge.Set.apply(Edge, _toConsumableArray(Util.flatten(foundPaths.map(function (path) {
-                return vertexArrayToEdges(path);
+                return Edge.Path(path);
             })))), color: Color.Normal }],
         newNodeHighlights: [{ set: Vertex.Set(s, t), color: Color.TertiaryHighlight }, { set: Vertex.Set.apply(Vertex, _toConsumableArray(Util.flatten(foundPaths))), color: Color.Normal }],
         finalResult: foundPaths
     };
 }
 function* treeLemma(G, bfs) {
+    G = StepByStep.complete(G.triangulateAll());
     var parentMap = new Map();
     for (var layer of bfs.treeLayers) {
         for (var _ref302 of layer) {
@@ -1836,8 +1887,8 @@ function* treeLemma(G, bfs) {
         path1 = _ref32[0];
         path2 = _ref32[1];
     }
-    var path1Edges = vertexArrayToEdges(path1);
-    var path2Edges = vertexArrayToEdges(path2);
+    var path1Edges = Edge.Path(path1);
+    var path2Edges = Edge.Path(path2);
     yield {
         resetEdgeHighlights: Color.GrayedOut,
         resetNodeHighlights: Color.Normal,
@@ -1953,6 +2004,9 @@ document.addEventListener('DOMContentLoaded', function () {
     return GUI.init();
 });
 var TestGraphs = {
+    sampleGraph: function sampleGraph(n) {
+        return PlanarGraph.deserialize('{"pos":{"0":{"x":0.9567903648770978,"y":0.3044487369932432},"1":{"x":0.5267492126137234,"y":0.21662801926871264},"2":{"x":0.2551442743421186,"y":0.8647535207902879},"3":{"x":0.8148150562351227,"y":0.62403542667612},"4":{"x":0.27880682578244786,"y":0.31370799625250245},"5":{"x":0.7160496241363572,"y":0.43164859540039985},"6":{"x":1.0627574430663982,"y":0.3236239040423752},"7":{"x":0.21193439779890877,"y":0.3281112884335724},"8":{"x":0.15946526199643962,"y":0.3816092308204037},"9":{"x":0.7479426282515835,"y":0.1703317229724163},"10":{"x":0.6903294595273036,"y":0.8410584275795667},"11":{"x":0.6903294595273037,"y":0.21251279293126402},"12":{"x":1.1284132082129015,"y":0.6281506530135685},"13":{"x":0.04288239870220423,"y":0.3120930497534573},"14":{"x":1.000000241420308,"y":0.5952288423139801},"15":{"x":0.5720167023256576,"y":0.4165886546887164},"16":{"x":0.10905373936269469,"y":0.3610330991331609},"17":{"x":0.7541154677577564,"y":0.2464634102152147},"18":{"x":0.9259261673462336,"y":0.5005786365526633},"19":{"x":0.4783953031487029,"y":0.43716478637595924},"20":{"x":0.39819170275191407,"y":0.3277391303798239},"21":{"x":0.4846114558383339,"y":0.08802719622344515},"22":{"x":0.6485231048427522,"y":0.7397751514799893},"23":{"x":0.07559850439429283,"y":0.12803629226982594},"24":{"x":0.24376398022286594,"y":0.012793667381629348},"25":{"x":0.5401236982104313,"y":0.8204822958923239},"26":{"x":0.6944879990482105,"y":0.31539345136747804},"27":{"x":0.03208110178820789,"y":0.38012674218043685},"28":{"x":0.41358048833388805,"y":0.722144210244272},"29":{"x":0.8993361520115286,"y":0.009576051961630583}},"v":{"0":[17,22,18,14,12,6,29],"1":[20,15,26,17,11,9,29,21,24,23],"2":[10,25,28,19,7,8,27],"3":[22,12,18],"4":[19,20,23],"5":[22,17,26,15],"6":[12],"7":[8,19,23],"8":[23],"9":[11,29],"10":[12,22,25],"11":[17],"12":[14,22],"13":[27,16,23],"14":[18],"15":[26],"16":[23],"17":[26,29],"18":[],"19":[28,25,20],"20":[23],"21":[29,24],"22":[],"23":[24],"24":[29],"25":[],"26":[],"27":[],"28":[],"29":[]}}');
+    },
     random: function random(n) {
         return PlanarGraph.randomPlanarGraph(+document.getElementById("vertexCount").value);
     },
@@ -1985,6 +2039,28 @@ var TestGraphs = {
             }
         }
         g.setPositionMap(pos.get.bind(pos));
+        return g;
+    },
+    circle: function circle(n) {
+        var vs = Util.array(n, function (i) {
+            return new Vertex();
+        });
+        var map = new Map();
+        var g = new PlanarGraph(vs);
+        Edge.Path(vs, true).forEach(function (e) {
+            return g.addEdgeUndirected(e.v1, e.v2);
+        });
+        for (var _ref353 of vs.entries()) {
+            var _ref352 = _slicedToArray(_ref353, 2);
+
+            var i = _ref352[0];
+            var v = _ref352[1];
+
+            var r = 0.5;
+            var φ = i / n * 2 * Math.PI;
+            map.set(v, { x: r * Math.cos(φ), y: r * Math.sin(φ) });
+        }
+        g.setPositionMap(map.get.bind(map));
         return g;
     }
 };
