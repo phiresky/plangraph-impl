@@ -147,7 +147,7 @@ module Util {
 	}
 
 	export function flatten<T>(array: T[][]): T[] {
-		return array.reduce((a, b) => a.concat(b));
+		return array.reduce((a, b) => a.concat(b), []);
 	}
 
 	export function randomChoice<T>(array: T[]): T {

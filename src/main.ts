@@ -18,7 +18,8 @@ const Color = {
 	SecondaryHighlight: "#00ff00",
 	TertiaryHighlight: "#0000ff",
 	Normal: "#000000",
-	GrayedOut: "#999999"
+	GrayedOut: "#999999",
+	Invisible: "#ffffff"
 }
 class GraphAlgorithm {
 	constructor(public name: string, public supplier: () => StepByStepAlgorithm<any>) {
@@ -29,7 +30,8 @@ class GraphAlgorithm {
 const Algorithms = [
 	new GraphAlgorithm("Breadth First Search", () => BFS.run(g)),
 	new GraphAlgorithm("Tree Lemma (Separator ≤ 2h + 1)", () => treeLemma(g, StepByStep.complete(BFS.run(g)))),
-	new GraphAlgorithm("Find embedding", () => findPlanarEmbedding(g))
+	new GraphAlgorithm("Find embedding", () => findPlanarEmbedding(g)),
+	new GraphAlgorithm("vertex disjunct Menger algorithm", () => mengerVertexDisjunct(g, g.getRandomVertex(), g.getRandomVertex()))
 ];
 
 module GUI {
@@ -422,6 +424,123 @@ function vertexArrayToEdges(path:Vertex[], wrapAround = false) {
 	if(wrapAround && path.length > 1) pathEdges.push(Edge.undirected(path[path.length-1], path[0]));
 	return pathEdges;
 }
+function* mengerVertexDisjunct(orig_g:PlanarGraph, s:Vertex, t:Vertex): StepByStepAlgorithm<Vertex[][]> {
+	let pathCounter = 0;
+	let paths:Vertex[][] = [];
+	const g = orig_g.clone();
+	class Info {
+		get previous() {return this.path[this.pathIndex - 1]; }
+		get next() {return this.path[this.pathIndex + 1]; }
+		constructor(public path: Vertex[], public pathIndex: number) {}
+		static fromPrevious(i:Info, v:Vertex) {
+			let path = i.path;
+			if(i.path.length === 1) path = path.slice();
+			if(path.length > i.pathIndex) path.splice(i.pathIndex + 1);
+			path.push(v);
+			return new Info(path, i.pathIndex+1);
+		}
+	}
+	let infoMap = new Map<Vertex, Info>([[s, new Info([s], 0)]]);
+	const stHighlight = {set:Vertex.Set(s,t), color:Color.TertiaryHighlight};
+	function* visit(v: Vertex, prev: Vertex): StepByStepAlgorithm<Vertex[][]> {
+		if(!v) return;
+		if(v === infoMap.get(prev).previous) {
+			const next = g.getNextEdge(v, prev);
+			g.removeEdgeUndirected(v, prev);
+			yield* visit(next, v);
+			return true;
+		}
+		if(v === s) {
+			const next = g.getNextEdge(prev, v);
+			// g.removeEdgeUndirected(prev, v);
+			yield* visit(next, prev);
+			return;
+		}
+		if(v === t) {
+			yield {
+				textOutput:"Found path!",
+				newEdgeHighlights:[{set:Edge.Set(Edge.undirected(prev, v)),color:Color.PrimaryHighlight}]
+			};
+			const info = infoMap.get(prev);
+			info.path.push(v);
+			paths.push(info.path);
+			return true;
+		}
+		if(infoMap.has(v)) {
+			const theirInfo = infoMap.get(v);
+			console.log(`already visited ${v} from ${theirInfo.previous} to ${theirInfo.next}, now from ${prev}`);
+			if(theirInfo.path[theirInfo.pathIndex] === v && theirInfo.next && g.edgeIsBetween(v, prev, theirInfo.previous, theirInfo.next)) {
+				console.log("conflict from right");
+				// conflict from right
+				// swap prev arrays
+				const thisInfo = infoMap.get(prev);
+				[thisInfo.pathIndex, theirInfo.pathIndex] = [theirInfo.pathIndex, thisInfo.pathIndex];
+				const oldStartSegment = thisInfo.path;
+				thisInfo.path = thisInfo.path.slice(); theirInfo.path = theirInfo.path.slice();
+				const newStartSegment = theirInfo.path.splice(0, thisInfo.pathIndex, ...thisInfo.path);
+				thisInfo.path.splice(0, thisInfo.path.length, ...newStartSegment);
+				prev = thisInfo.previous;
+				yield {
+					textOutput: "Conflict from right - replacing segments",
+					resetEdgeHighlights: Color.GrayedOut,
+					newEdgeHighlights: [
+						{set: Edge.Set(...vertexArrayToEdges(newStartSegment)), color:Color.PrimaryHighlight},
+						{set: Edge.Set(...vertexArrayToEdges(oldStartSegment)), color: Color.SecondaryHighlight},
+						{set: Edge.Set(...vertexArrayToEdges(theirInfo.path)), color:Color.TertiaryHighlight}
+					]
+				}
+			}
+			console.log("conflict from left");
+			// conflict from left
+			// backtrack remove
+			const next = g.getNextEdge(prev, v);
+			g.removeEdgeUndirected(prev, v);
+			yield* visit(next, prev);
+			return;
+		} else {
+			infoMap.set(v, Info.fromPrevious(infoMap.get(prev), v));
+			console.log(infoMap.get(v));
+			yield {
+				textOutput: "Visiting "+v,
+				resetNodeHighlights: Color.GrayedOut,
+				resetEdgeHighlights: Color.Invisible,
+				newNodeHighlights: [
+					{set: Vertex.Set(v), color:Color.PrimaryHighlight},
+					{set: Vertex.Set(prev), color:Color.SecondaryHighlight},
+					stHighlight,
+					{set: Vertex.Set(...infoMap.keys()), color: Color.Normal}
+				],
+				newEdgeHighlights: [
+					{set: Edge.Set(...vertexArrayToEdges(infoMap.get(v).path)), color:Color.PrimaryHighlight},
+					{set: Edge.Set(...Util.flatten(paths.map(path => vertexArrayToEdges(path)))), color: Color.Normal},
+					{set: g.getAllEdgesUndirected(), color: Color.GrayedOut}
+				]
+			}
+			const res = yield *visit(g.getNextEdge(v, prev), v);
+			if(res === true) return true;
+			/*for(const next of g.getNextEdges(v, prev)) {
+				const res = yield *visit(next, v);
+				console.log(next, res);
+				if(res === true) return true;
+			}*/
+		}
+	}
+	for(const v of g.getEdgesUndirected(s)) {
+		pathCounter++;
+		yield {
+			textOutput: "Starting new path "+pathCounter,
+			resetEdgeHighlights: Color.GrayedOut,
+			resetNodeHighlights: Color.Normal,
+			newEdgeHighlights: [{set:Edge.Set(...Util.flatten(paths.map(path => vertexArrayToEdges(path)))), color: Color.Normal}],
+			newNodeHighlights: [stHighlight]
+		}
+		yield *visit(v, s);
+	}
+	yield {
+		finalResult: paths,
+		textOutput: `Found ${paths.length} s-t-paths`
+	}
+}
 
 type Separator = { v1: Iterable<Vertex>, v2: Iterable<Vertex>, s: Iterable<Vertex> };
 function* treeLemma(G: Graph, bfs: BFS): StepByStepAlgorithm<Separator> {
@@ -451,7 +570,7 @@ function* treeLemma(G: Graph, bfs: BFS): StepByStepAlgorithm<Separator> {
 		const edges = G.getEdgesUndirected(parentVertex);
 		const parentParentIndex = edges.indexOf(parentMap.get(parentVertex));
 		const selfIndex = edges.indexOf(vertex);
-		if (parentParentIndex === selfIndex || parentParentIndex < 0 && selfIndex < 0) throw "assertion error";
+		if (parentParentIndex === selfIndex || parentParentIndex < 0 && selfIndex < 0) throw new Error("assertion error");
 		let leftNodes: Vertex[] = [];
 		let rightNodes: Vertex[] = [];
 		if (parentParentIndex > selfIndex) {

@@ -14,7 +14,7 @@ class Edge {
 	}
 	toString = () => this.id;
 	static [ActualSet.hash](e: Edge) {
-		if (!(e instanceof Edge)) throw "assertion error";
+		if (!(e instanceof Edge)) throw new Error("assertion error");
 		return e.id;
 	}
 	static Set(...e: Edge[]) {
@@ -30,7 +30,7 @@ class Vertex {
 		this.id = Vertex.counter++;
 	}
 	static [ActualSet.hash](v: Vertex) {
-		if (!(v instanceof Vertex)) throw "assertion error";
+		if (!(v instanceof Vertex)) throw new Error("assertion error");
 		return v.sigmaId;
 	}
 	toString = () => this.sigmaId;
@@ -71,7 +71,7 @@ class Graph {
 		this.getEdgesUndirected(to).push(from);
 	}
 	getEdgesUndirected(v: Vertex) {
-		if (!this.V.has(v)) throw new Error(`graph does not contain ${v}`);
+		if (!v || !this.V.has(v)) throw new Error(`graph does not contain ${v}`);
 		return this.E.get(v);
 	}
 	getAllEdgesUndirected() {
@@ -88,6 +88,29 @@ class Graph {
 	getSomeVertex() {
 		return this.V.values().next().value;
 	}
+	getRandomVertex() {
+		return Util.randomChoice([...this.V]);
+	}
+	getVertexById(id:number):Vertex {
+		for(let v of this.V) if(v.id === id) return v;
+		return null;
+	}
+
+	getEdgeIndex(v1: Vertex, v2: Vertex): number {
+		const edges = this.getEdgesUndirected(v1);
+		for (let i = 0; i < edges.length; i++) {
+			if (edges[i] === v2) return i;
+		}
+		throw `(${v1},${v2}) does not exist`;
+	}
+	removeEdgeUndirected(v1:Vertex, v2:Vertex) {
+		this.getEdgesUndirected(v1).splice(this.getEdgeIndex(v1, v2), 1);
+		this.getEdgesUndirected(v2).splice(this.getEdgeIndex(v2, v1), 1);
+	}
+	/*removeVertex(v: Vertex) {
+		this.V.delete(v);
+		// todo
+	}*/
 	sortEdges(mapper: (v1: Vertex, v2: Vertex) => number) {
 		for (let v1 of this.V) this.E.set(v1, this.E.get(v1).sort((v2a, v2b) => mapper(v1, v2a) - mapper(v1, v2b)));
 	}
@@ -125,7 +148,6 @@ class Graph {
 			setTimeout(() => sigmainst.stopForceAtlas2(), 2000);
 		}
 	}
-
 	static randomGraph(n = 10, m = 15) {
 		const verts: Vertex[] = [];
 		for (let i = 0; i < n; i++) verts.push(new Vertex());
@@ -214,38 +236,40 @@ class PlanarGraph extends Graph {
 		}
 		return this;
 	}
-	getVertexById(id:number):Vertex {
-		for(let v of this.V) if(v.id === id) return v;
-		return null;
-	}
 
-	getEdgeIndex(v1: Vertex, v2: Vertex): number {
-		const edges = this.getEdgesUndirected(v1);
-		for (let i = 0; i < edges.length; i++) {
-			if (edges[i] === v2) return i;
+	*getNextEdges(v1: Vertex, v2: Vertex) {
+		let v2start = v2;
+		v2 = this.getNextEdge(v1, v2);
+		while(v2 !== v2start) {
+			yield v2;
+			v2 = this.getNextEdge(v1, v2)
 		}
-		throw `(${v1},${v2}) does not exist`;
 	}
 	getNextEdge(v1: Vertex, v2: Vertex): Vertex {
-		if (!this.hasEdgeUndirected(v1, v2)) throw "not an edge";
+		if (!this.hasEdgeUndirected(v1, v2)) throw new Error(`does not have edge ${v1} - ${v2}`);
 		const edges = this.getEdgesUndirected(v1);
 		let nextEdge = (this.getEdgeIndex(v1, v2) + 1) % edges.length;
 		return edges[nextEdge];
 	}
 	getPrevEdge(v1: Vertex, v2: Vertex): Vertex {
-		if (!this.hasEdgeUndirected(v1, v2)) throw "not an edge";
+		if (!this.hasEdgeUndirected(v1, v2)) throw new Error(`does not have edge ${v1} - ${v2}`);
 		const edges = this.getEdgesUndirected(v1);
 		let nextEdge = (this.getEdgeIndex(v1, v2) - 1 + edges.length) % edges.length;
 		return edges[nextEdge];
 	}
 	*getEdgesBetween(vbefore: Vertex, vref: Vertex, vafter: Vertex) {
-		if (!this.hasEdgeUndirected(vref, vafter)) throw "no";
-		if (vafter === vbefore) throw "same edge";
+		if (!this.hasEdgeUndirected(vref, vafter)) throw new Error(`does not have edge ${vref} - ${vafter}`);
+		if (vafter === vbefore) throw new Error("same edge");
 		let edge = this.getNextEdge(vref, vbefore);
 		while (edge !== vafter) {
 			yield edge;
 			edge = this.getNextEdge(vref, edge);
 		}
+	}
+	edgeIsBetween(base: Vertex, target: Vertex, rightEdge: Vertex, leftEdge: Vertex) {
+		for(let edge of this.getEdgesBetween(rightEdge, base, leftEdge))
+			if(edge === target) return true;
+		return false;
 	}
 	addEdgeUndirected(from: Vertex, to: Vertex, afterEdge1?: Vertex, afterEdge2?: Vertex) {
 		console.log(`adding (${from},${to}) after ${from},${afterEdge1} and ${to},${afterEdge2}`);
@@ -287,6 +311,12 @@ class PlanarGraph extends Graph {
 			}
 		}
 		return true;
+	}
+	
+	clone() {
+		const e = [...this.E];
+		for(const x of e) x[1] = x[1].slice(); // clone edge arrays
+		return new PlanarGraph(this.V, e);
 	}
 
 	static randomPlanarGraph(n: number) {
