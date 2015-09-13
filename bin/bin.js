@@ -121,7 +121,7 @@ var Util;
         return hex.length == 1 ? "0" + hex : hex;
     }
     function rgbToHex(r, g, b) {
-        return "#" + componentToHex(r) + componentToHex(g) + componentToHex(b);
+        return "#" + componentToHex(r | 0) + componentToHex(g | 0) + componentToHex(b | 0);
     }
     Util.rgbToHex = rgbToHex;
     // Based on http://stackoverflow.com/a/565282/64009
@@ -265,10 +265,12 @@ var Util;
         return zcrossproduct <= 0;
     }
     Util.pointsConvex = pointsConvex;
-    /*export function findAngle(p1: Point, p2: Point, p3: Point) {
-        // invert - because of screen coordinates
+    /** warning: sign and stuff incorrect */
+    function findAngle(p1, p2, p3) {
+        // invert y because of screen coordinates
         return (Math.atan2(-(p1.y - p2.y), p1.x - p2.x) - Math.atan2(-(p3.y - p2.y), p3.x - p2.x)) * 180 / Math.PI;
-    }*/
+    }
+    Util.findAngle = findAngle;
     function polygonCentroid(vertices) {
         var l = vertices.length;
         var centroid = { x: 0, y: 0 };
@@ -295,7 +297,23 @@ var Util;
         return centroid;
     }
     Util.polygonCentroid = polygonCentroid;
+    function sqr(x) {
+        return x * x;
+    }
+    function dist2(v, w) {
+        return sqr(v.x - w.x) + sqr(v.y - w.y);
+    }
+    function distToSegmentSquared(p, v, w) {
+        var l2 = dist2(v, w);
+        if (l2 == 0) return dist2(p, v);
+        var t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+        if (t < 0) return dist2(p, v);
+        if (t > 1) return dist2(p, w);
+        return dist2(p, { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) });
+    }
     function polygonKernel(points) {
+        var searchDuration = 100; //ms
+        var abortDuration = 2000; //ms
         // find kernel of containing facet. (lul)
         var minx = points.reduce(function (min, p) {
             return Math.min(min, p.x);
@@ -327,22 +345,61 @@ var Util;
             return true;
         };
         var segments = VisibilityPolygon.convertToSegments([pointsForVisPoly]);
-        var x = undefined,
-            y = undefined;
+        var results = [];
         console.log("searching for ", points, segments);
+        var before = performance.now();
         while (true) {
-            x = Math.random() * (maxx - minx) + minx;
-            y = Math.random() * (maxy - miny) + miny;
+            var x = Math.random() * (maxx - minx) + minx;
+            var y = Math.random() * (maxy - miny) + miny;
             if (VisibilityPolygon.inPolygon([x, y], pointsForVisPoly)) {
+                if (performance.now() - before > abortDuration) break;
                 try {
-                    if (polyIsSame(VisibilityPolygon.compute([x, y], segments))) break;
+                    if (polyIsSame(VisibilityPolygon.compute([x, y], segments))) {
+                        results.push({ x: x, y: y });
+                        if (performance.now() - before > searchDuration) break;
+                    }
                 } catch (e) {
                     // sometimes fails when point to close to edge
                     continue;
                 }
             }
         }
-        return { x: x, y: y };
+        console.log("found " + results.length + " results");
+        function minDistance(p) {
+            var min = Infinity;
+            for (var i = 0; i < points.length; i++) {
+                var p2 = points[i],
+                    p3 = points[(i + 1) % points.length];
+                var cur = distToSegmentSquared(p, p2, p3);
+                if (cur < min) min = cur;
+            }
+            //	const cur = (p2.x - p.x) * (p2.x - p.x) + (p2.y - p.y) * (p2.y - p.y);
+            //if (cur < min) min = cur;
+            return min;
+        }
+        if (results.length <= 0) return null;
+        // results.splice(1000);
+        // find point with max distance to poly
+        results.sort(function (a, b) {
+            return minDistance(b) - minDistance(a);
+        });
+        /*{//debug
+            const min = Math.sqrt(Math.min(...results.map(r => minDistance(r))));
+            const max = Math.sqrt(Math.max(...results.map(r => minDistance(r))));
+            sigmainst.graph.nodes().filter(p => p.id.startsWith("debug_")).forEach(n => sigmainst.graph.dropNode(n.id));
+            for(const p of results) {
+                const color = (Math.sqrt(minDistance(p))-min)/(max-min) * 255;
+                sigmainst.graph.addNode({
+                    x: p.x,
+                    y:p.y,
+                    size: 1,
+                    color: rgbToHex(color,color,color),
+                    id:"debug_"+Math.random(),
+                });
+            }
+        }*/
+        console.log("result has minDist to polygon of " + minDistance(results[0]));
+        return results[0];
     }
     Util.polygonKernel = polygonKernel;
 })(Util || (Util = {}));
@@ -928,8 +985,7 @@ var PlanarGraph = (function (_Graph) {
     return PlanarGraph;
 })(Graph);
 
-var sigmainst = undefined,
-    g = undefined;
+var sigmainst, g;
 var Color = {
     PrimaryHighlight: "#ff0000",
     SecondaryHighlight: "#00ff00",
@@ -973,7 +1029,7 @@ var GUI;
     function algorithmCallback() {
         if (running) setTimeout(function () {
             return !running || algorithmStep();
-        }, 300);
+        }, 200);
     }
     GUI.algorithmCallback = algorithmCallback;
     function onAlgorithmFinish() {
@@ -982,6 +1038,7 @@ var GUI;
         if (running) {
             algorithmRunToggle();
         }
+        GUI.currentAlgorithm = null;
     }
     GUI.onAlgorithmFinish = onAlgorithmFinish;
     function algorithmRunToggle() {
@@ -998,6 +1055,7 @@ var GUI;
     }
     GUI.algorithmRunToggle = algorithmRunToggle;
     function startAlgorithm() {
+        if (running) algorithmRunToggle();
         var select = $("#selectAlgorithm")[0];
         var algo = Algorithms[+select.value];
         $("#stepButton").prop("disabled", false);
@@ -1020,6 +1078,7 @@ var GUI;
             sigmainst.refresh();
         },
         newRandomPlanarGraph: function newRandomPlanarGraph() {
+            onAlgorithmFinish();
             sigmainst.graph.clear();
             g = PlanarGraph.randomPlanarGraph(+document.getElementById("vertexCount").value);
             g.draw(sigmainst);
@@ -1029,6 +1088,9 @@ var GUI;
         sigmainst = new sigma('graph-container');
         GUI.Macros.newRandomPlanarGraph();
         var select = $("#selectAlgorithm")[0];
+        $(select).change(function () {
+            return onAlgorithmFinish();
+        });
         for (var _ref183 of Algorithms.entries()) {
             var _ref182 = _slicedToArray(_ref183, 2);
 
@@ -1073,7 +1135,7 @@ var StepByStep = (function () {
                 addPositions("_temp", state.changePositions);
                 animatePositions("_temp", [].concat(_toConsumableArray(state.changePositions.keys())).map(function (v) {
                     return v.sigmaId;
-                }), callback);
+                }), 400, callback);
             } else {
                 callback();
             }
@@ -1269,12 +1331,12 @@ function addPositions(prefix, posMap) {
         node[prefix + "_y"] = y;
     }
 }
-function animatePositions(prefix, nodes, callback) {
+function animatePositions(prefix, nodes, duration, callback) {
     sigma.plugins.animate(sigmainst, {
         x: prefix + '_x', y: prefix + '_y'
     }, {
         easing: 'cubicInOut',
-        duration: 1000,
+        duration: duration,
         nodes: nodes,
         onComplete: callback
     });
@@ -1416,6 +1478,15 @@ function* findPlanarEmbedding(g) {
         } else {
             point = Util.polygonKernel(points);
         }
+        if (!point) {
+            yield {
+                finalResult: null,
+                textOutput: "Embedding error: timeout while searching for new polygon position"
+            };
+            return {
+                v: undefined
+            };
+        }
         map.set(v, point);
         yield {
             textOutput: "moved vertex to new position",
@@ -1457,7 +1528,9 @@ function* findPlanarEmbedding(g) {
     };
 
     while (map.size < vertices.length) {
-        yield* _loop4();
+        var _ret4 = yield* _loop4();
+
+        if (typeof _ret4 === "object") return _ret4.v;
     }
     yield {
         textOutput: "Embedding successful",

@@ -1,4 +1,4 @@
-let sigmainst: SigmaJs.Sigma, g: PlanarGraph;
+var sigmainst: SigmaJs.Sigma, g: PlanarGraph;
 
 type StepByStepAlgorithm<T> = IterableIterator<StepByStepState<T>>;
 type Highlights<T> = Iterable<{ set: ActualSet<T>, color: string }>;
@@ -48,7 +48,7 @@ module GUI {
 		}
 	}
 	export function algorithmCallback() {
-		if(running) setTimeout(() => !running || algorithmStep(), 300);
+		if(running) setTimeout(() => !running || algorithmStep(), 200);
 	}
 	export function onAlgorithmFinish() {
 		$("#stepButton").prop("disabled", true);
@@ -56,6 +56,7 @@ module GUI {
 		if (running) {
 			algorithmRunToggle();
 		}
+		currentAlgorithm = null;
 	}
 	export function algorithmRunToggle() {
 		const btn = $("#runButton");
@@ -70,6 +71,7 @@ module GUI {
 		}
 	}
 	export function startAlgorithm() {
+		if(running) algorithmRunToggle();
 		const select = <HTMLSelectElement>$("#selectAlgorithm")[0];
 		const algo = Algorithms[+select.value];
 		$("#stepButton").prop("disabled", false);
@@ -91,6 +93,7 @@ module GUI {
 			sigmainst.refresh();
 		},
 		newRandomPlanarGraph: () => {
+			onAlgorithmFinish();
 			sigmainst.graph.clear();
 			g = PlanarGraph.randomPlanarGraph(+(<HTMLInputElement>document.getElementById("vertexCount")).value);
 			g.draw(sigmainst);
@@ -101,6 +104,7 @@ module GUI {
 		sigmainst = new sigma('graph-container');
 		Macros.newRandomPlanarGraph();
 		const select = <HTMLSelectElement>$("#selectAlgorithm")[0];
+		$(select).change(() => onAlgorithmFinish());
 		for (let [i, algo] of Algorithms.entries()) {
 			select.add(new Option(algo.name, i + "", i === 0));
 		}
@@ -127,7 +131,7 @@ class StepByStep {
 		sigmainst.refresh();
 		if(state.changePositions !== undefined) {
 			addPositions("_temp", state.changePositions);
-			animatePositions("_temp", [...state.changePositions.keys()].map(v => v.sigmaId), callback);
+			animatePositions("_temp", [...state.changePositions.keys()].map(v => v.sigmaId), 400, callback);
 		} else {
 			callback();
 		}
@@ -239,12 +243,12 @@ function addPositions(prefix: string, posMap: Iterable<[Vertex, { x: number, y: 
 		node[prefix + "_y"] = y;
 	}
 }
-function animatePositions(prefix: string, nodes?:string[], callback?:()=>void) {
+function animatePositions(prefix: string, nodes?:string[], duration?:number, callback?:()=>void) {
 	sigma.plugins.animate(sigmainst, {
 		x: prefix + '_x', y: prefix + '_y'
 	}, {
 			easing: 'cubicInOut',
-			duration: 1000,
+			duration: duration,
 			nodes: nodes,
 			onComplete: callback
 		});
@@ -370,6 +374,13 @@ function *findPlanarEmbedding(g: PlanarGraph):StepByStepAlgorithm<Map<Vertex, Po
 			point = Util.polygonCentroid(points);
 		} else {
 			point = Util.polygonKernel(points);
+		}
+		if(!point) {
+			yield {
+				finalResult: null,
+				textOutput: "Embedding error: timeout while searching for new polygon position"
+			}
+			return;
 		}
 		map.set(v, point);
 		yield {

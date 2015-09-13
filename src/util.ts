@@ -73,7 +73,7 @@ module Util {
 	}
 
 	export function rgbToHex(r: number, g: number, b: number) {
-		return "#" + componentToHex(r) + componentToHex(g) + componentToHex(b);
+		return "#" + componentToHex(r|0) + componentToHex(g|0) + componentToHex(b|0);
 	}
 	// Based on http://stackoverflow.com/a/565282/64009
 	export function intersect(a: [Point, Point], b: [Point, Point]) {
@@ -189,10 +189,11 @@ module Util {
 		return zcrossproduct <= 0;
 	}
 	
-	/*export function findAngle(p1: Point, p2: Point, p3: Point) {
-		// invert - because of screen coordinates
+	/** warning: sign and stuff incorrect */
+	export function findAngle(p1: Point, p2: Point, p3: Point) {
+		// invert y because of screen coordinates
 		return (Math.atan2(-(p1.y - p2.y), p1.x - p2.x) - Math.atan2(-(p3.y - p2.y), p3.x - p2.x)) * 180 / Math.PI;
-	}*/
+	}
 
 	export function polygonCentroid(vertices: Point[]) {
 		const l = vertices.length;
@@ -223,7 +224,20 @@ module Util {
 		return centroid;
 	}
 
+	function sqr(x: number) { return x * x }
+	function dist2(v: Point, w: Point) { return sqr(v.x - w.x) + sqr(v.y - w.y) }
+	function distToSegmentSquared(p: Point, v: Point, w: Point) {
+		var l2 = dist2(v, w);
+		if (l2 == 0) return dist2(p, v);
+		var t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+		if (t < 0) return dist2(p, v);
+		if (t > 1) return dist2(p, w);
+		return dist2(p, { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) });
+	}
+
 	export function polygonKernel(points: Point[]) {
+		const searchDuration = 100; //ms
+		const abortDuration = 2000; //ms
 		// find kernel of containing facet. (lul)
 		const minx = points.reduce((min, p) => Math.min(min, p.x), Infinity);
 		const maxx = points.reduce((max, p) => Math.max(max, p.x), -Infinity);
@@ -243,21 +257,63 @@ module Util {
 			return true;
 		}
 		const segments = VisibilityPolygon.convertToSegments([pointsForVisPoly]);
-		let x: number, y: number;
-		console.log("searching for ",points, segments);
+		const results: Point[] = [];
+		console.log("searching for ", points, segments);
+		const before = performance.now();
 		while (true) {
-			x = Math.random() * (maxx - minx) + minx;
-			y = Math.random() * (maxy - miny) + miny;
+			const x = Math.random() * (maxx - minx) + minx;
+			const y = Math.random() * (maxy - miny) + miny;
 			if (VisibilityPolygon.inPolygon([x, y], pointsForVisPoly)) {
+				if (performance.now() - before > abortDuration) break;
 				try {
-					if (polyIsSame(VisibilityPolygon.compute([x, y], segments))) break;
-				} catch(e) {
+					if (polyIsSame(VisibilityPolygon.compute([x, y], segments))) {
+						results.push({ x: x, y: y });
+						if (performance.now() - before > searchDuration) break;
+					}
+				} catch (e) {
 					// sometimes fails when point to close to edge
 					continue;
 				}
 			}
 		}
-		return { x: x, y: y };
+		console.log(`found ${results.length} results`);
+		function minDistance(p: Point) {
+			let min = Infinity;
+			for (let i = 0; i < points.length; i++) {
+				const p2 = points[i], p3 = points[(i + 1) % points.length];
+				const cur = /*Math.abs(findAngle(p2, p3, p)%180);
+				const cur2 = Math.abs(findAngle(p3, p2, p)%180);
+				if(cur2<min) min = cur2;
+				//*/distToSegmentSquared(p, p2, p3);
+				if (cur < min) min = cur;
+			}
+			//	const cur = (p2.x - p.x) * (p2.x - p.x) + (p2.y - p.y) * (p2.y - p.y);
+			//if (cur < min) min = cur;
+			return min;
+		}
+		if(results.length <= 0) return null;
+		// results.splice(1000);
+		// find point with max distance to poly
+		results.sort((a, b) => {
+			return minDistance(b) - minDistance(a);
+		});
+		/*{//debug
+			const min = Math.sqrt(Math.min(...results.map(r => minDistance(r))));
+			const max = Math.sqrt(Math.max(...results.map(r => minDistance(r))));
+			sigmainst.graph.nodes().filter(p => p.id.startsWith("debug_")).forEach(n => sigmainst.graph.dropNode(n.id));
+			for(const p of results) {
+				const color = (Math.sqrt(minDistance(p))-min)/(max-min) * 255;
+				sigmainst.graph.addNode({
+					x: p.x,
+					y:p.y,
+					size: 1,
+					color: rgbToHex(color,color,color),
+					id:"debug_"+Math.random(),
+				});
+			}
+		}*/
+		console.log(`result has minDist to polygon of ${minDistance(results[0]) }`);
+		return results[0];
 	}
 
 }
