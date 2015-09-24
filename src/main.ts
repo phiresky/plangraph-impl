@@ -375,7 +375,6 @@ function *findPlanarEmbedding(g: PlanarGraph):StepByStepAlgorithm<Map<Vertex, Po
 	};
 	const halfEmbeddedEdges = (v:Vertex) => g.getEdgesUndirected(v).filter(w => map.has(w));
 	while(map.size < vertices.length) {
-		
 		const v = vertices.find(v => {if(map.has(v)) return false; const e = halfEmbeddedEdges(v); return e.length >= 2});
 		if(v === undefined) throw "bläsius error";
 		const edges = halfEmbeddedEdges(v);
@@ -454,6 +453,42 @@ function *findPlanarEmbedding(g: PlanarGraph):StepByStepAlgorithm<Map<Vertex, Po
 					{set: embeddedSubgraph.getAllEdgesUndirected(), color: Color.Normal}
 				]
 			}
+		}
+		if(map.size%1 == 0) {
+			for(let it = 0; it < 1000; it++) {
+				for(const v of map.keys()) {
+					const poly:Vertex[] = [];
+					const vPos = map.get(v);
+					for(const w of embeddedSubgraph.getEdgesUndirected(v)) {
+						poly.push(...embeddedSubgraph.getFacet(v,w).slice(1));
+					}
+					let force: Point = {x:0,y:0};
+					for(const e of Edge.Path(poly, true)) {
+						const p = Util.projectPointToSegment(vPos, map.get(e.v1), map.get(e.v2));
+						const dist2 = Util.dist2(vPos, p);
+						force.x += (p.x - vPos.x)/dist2; force.y += (p.y - vPos.y)/dist2;
+					}
+					vPos.x -= force.x * 0.00001;
+					vPos.y -= force.y * 0.00001;
+					map.set(v, vPos);
+					/*yield {
+						textOutput: "for "+v,
+						resetEdgeHighlights: Color.GrayedOut,
+						resetNodeHighlights: Color.GrayedOut,
+						newEdgeHighlights: [
+							{set: Edge.Set(...Edge.Path(poly, true)), color: Color.PrimaryHighlight}
+						],
+						newNodeHighlights: [
+							{set: Vertex.Set(v), color: Color.PrimaryHighlight}
+						]
+					};*/
+				}
+				
+			}
+			yield {
+				textOutput: "running force based algorithm",
+				changePositions: map
+			};
 		}
 	}
 	yield {
@@ -648,7 +683,8 @@ function* treeLemma(G: PlanarGraph, bfs: BFS): StepByStepAlgorithm<Separator> {
 	// find common root
 	const commonRoot = path2[0];
 	while (path1[0] !== commonRoot) path1.shift();
-	if(parentMap.has(commonRoot) && G.edgeIsBetween(commonRoot, path2[1], path1[1], parentMap.get(commonRoot))) {
+	console.log(commonRoot, path2[1], path1[1], parentMap.get(commonRoot));
+	if(parentMap.get(commonRoot) != null && G.edgeIsBetween(commonRoot, path2[1], path1[1], parentMap.get(commonRoot))) {
 		// p2 is right of p1
 	} else {
 		[path1, path2] = [path2, path1];

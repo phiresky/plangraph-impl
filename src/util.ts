@@ -225,14 +225,17 @@ module Util {
 	}
 
 	function sqr(x: number) { return x * x }
-	function dist2(v: Point, w: Point) { return sqr(v.x - w.x) + sqr(v.y - w.y) }
-	function distToSegmentSquared(p: Point, v: Point, w: Point) {
+	export function dist2(v: Point, w: Point) { return sqr(v.x - w.x) + sqr(v.y - w.y) }
+	export function projectPointToSegment(p: Point, v: Point, w: Point) {
 		var l2 = dist2(v, w);
-		if (l2 == 0) return dist2(p, v);
+		if (l2 == 0) return v;
 		var t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
-		if (t < 0) return dist2(p, v);
-		if (t > 1) return dist2(p, w);
-		return dist2(p, { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) });
+		if (t < 0) return v;
+		if (t > 1) return w;
+		return { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) };
+	}
+	export function distToSegmentSquared(p: Point, v: Point, w: Point) {
+		return dist2(p, projectPointToSegment(p, v, w));
 	}
 
 	export function polygonKernel(points: Point[]) {

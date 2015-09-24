@@ -303,14 +303,20 @@ var Util;
     function dist2(v, w) {
         return sqr(v.x - w.x) + sqr(v.y - w.y);
     }
-    function distToSegmentSquared(p, v, w) {
+    Util.dist2 = dist2;
+    function projectPointToSegment(p, v, w) {
         var l2 = dist2(v, w);
-        if (l2 == 0) return dist2(p, v);
+        if (l2 == 0) return v;
         var t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
-        if (t < 0) return dist2(p, v);
-        if (t > 1) return dist2(p, w);
-        return dist2(p, { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) });
+        if (t < 0) return v;
+        if (t > 1) return w;
+        return { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) };
     }
+    Util.projectPointToSegment = projectPointToSegment;
+    function distToSegmentSquared(p, v, w) {
+        return dist2(p, projectPointToSegment(p, v, w));
+    }
+    Util.distToSegmentSquared = distToSegmentSquared;
     function polygonKernel(points) {
         var searchDuration = 100; //ms
         var abortDuration = 2000; //ms
@@ -1646,6 +1652,31 @@ function* findPlanarEmbedding(g) {
                 newEdgeHighlights: [{ set: Edge.Set.apply(Edge, _toConsumableArray(Edge.Path(facet, true))), color: Color.PrimaryHighlight }, { set: embeddedSubgraph.getAllEdgesUndirected(), color: Color.Normal }]
             };
         }
+        if (map.size % 1 == 0) {
+            for (var it = 0; it < 1000; it++) {
+                for (var _v of map.keys()) {
+                    var poly = [];
+                    var vPos = map.get(_v);
+                    for (var w of embeddedSubgraph.getEdgesUndirected(_v)) {
+                        poly.push.apply(poly, _toConsumableArray(embeddedSubgraph.getFacet(_v, w).slice(1)));
+                    }
+                    var force = { x: 0, y: 0 };
+                    for (var e of Edge.Path(poly, true)) {
+                        var p = Util.projectPointToSegment(vPos, map.get(e.v1), map.get(e.v2));
+                        var dist2 = Util.dist2(vPos, p);
+                        force.x += (p.x - vPos.x) / dist2;
+                        force.y += (p.y - vPos.y) / dist2;
+                    }
+                    vPos.x -= force.x * 0.00001;
+                    vPos.y -= force.y * 0.00001;
+                    map.set(_v, vPos);
+                }
+            }
+            yield {
+                textOutput: "running force based algorithm",
+                changePositions: map
+            };
+        }
     };
 
     while (map.size < vertices.length) {
@@ -1882,7 +1913,8 @@ function* treeLemma(G, bfs) {
     // find common root
     var commonRoot = path2[0];
     while (path1[0] !== commonRoot) path1.shift();
-    if (parentMap.has(commonRoot) && G.edgeIsBetween(commonRoot, path2[1], path1[1], parentMap.get(commonRoot))) {} else {
+    console.log(commonRoot, path2[1], path1[1], parentMap.get(commonRoot));
+    if (parentMap.get(commonRoot) != null && G.edgeIsBetween(commonRoot, path2[1], path1[1], parentMap.get(commonRoot))) {} else {
         var _ref32 = [path2, path1];
         path1 = _ref32[0];
         path2 = _ref32[1];
